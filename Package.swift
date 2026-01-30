@@ -17,7 +17,8 @@ let package = Package(
         .testTarget(
             name: "RekordboxerCoreTests",
             dependencies: ["RekordboxerCore"],
-            path: "Tests/RekordboxerCoreTests"
+            path: "Tests/RekordboxerCoreTests",
+            resources: [.copy("Fixtures")]
         ),
     ]
 )
