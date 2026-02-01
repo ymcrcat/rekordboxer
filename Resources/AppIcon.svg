@@ -1,9 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#2c2c2e"/>
-      <stop offset="100%" stop-color="#1c1c1e"/>
-    </linearGradient>
     <linearGradient id="crate" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#A07818"/>
       <stop offset="100%" stop-color="#7A5C14"/>
@@ -20,79 +16,56 @@
       <stop offset="0%" stop-color="#00d2ff"/>
       <stop offset="100%" stop-color="#7b68ee"/>
     </linearGradient>
-    <!-- macOS squircle clip path (Apple's continuous corner curve) -->
-    <clipPath id="iconMask">
-      <path d="
-        M512 48
-        C708 48 760 48 832 80
-        C904 112 944 152 960 192
-        C976 232 976 284 976 512
-        C976 740 976 792 960 832
-        C944 872 904 912 832 944
-        C760 976 708 976 512 976
-        C316 976 264 976 192 944
-        C120 912 80 872 64 832
-        C48 792 48 740 48 512
-        C48 284 48 232 64 192
-        C80 152 120 112 192 80
-        C264 48 316 48 512 48Z"/>
-    </clipPath>
   </defs>
 
-  <!-- Clipped icon area -->
-  <g clip-path="url(#iconMask)">
-    <!-- Background fill -->
-    <rect x="0" y="0" width="1024" height="1024" fill="white"/>
+  <!-- Crate back wall -->
+  <rect x="220" y="340" width="520" height="380" rx="12" fill="url(#crate)" opacity="0.9"/>
 
-    <!-- Crate back wall -->
-    <rect x="220" y="340" width="520" height="380" rx="12" fill="url(#crate)" opacity="0.9"/>
+  <!-- Wood slat lines on back -->
+  <line x1="220" y1="435" x2="740" y2="435" stroke="#5a4010" stroke-width="2" opacity="0.4"/>
+  <line x1="220" y1="530" x2="740" y2="530" stroke="#5a4010" stroke-width="2" opacity="0.4"/>
+  <line x1="220" y1="625" x2="740" y2="625" stroke="#5a4010" stroke-width="2" opacity="0.4"/>
 
-    <!-- Wood slat lines on back -->
-    <line x1="220" y1="435" x2="740" y2="435" stroke="#5a4010" stroke-width="2" opacity="0.4"/>
-    <line x1="220" y1="530" x2="740" y2="530" stroke="#5a4010" stroke-width="2" opacity="0.4"/>
-    <line x1="220" y1="625" x2="740" y2="625" stroke="#5a4010" stroke-width="2" opacity="0.4"/>
+  <!-- Vinyl record 1 (back, tilted left) -->
+  <g transform="translate(400, 490) rotate(-8)">
+    <circle cx="0" cy="0" r="155" fill="url(#vinyl)" stroke="#333" stroke-width="1.5"/>
+    <circle cx="0" cy="0" r="115" fill="none" stroke="#333" stroke-width="0.8" opacity="0.5"/>
+    <circle cx="0" cy="0" r="85" fill="none" stroke="#333" stroke-width="0.8" opacity="0.35"/>
+    <circle cx="0" cy="0" r="55" fill="none" stroke="#333" stroke-width="0.8" opacity="0.25"/>
+    <circle cx="0" cy="0" r="32" fill="#c0392b"/>
+    <circle cx="0" cy="0" r="7" fill="#1a1a1a"/>
+  </g>
 
-    <!-- Vinyl record 1 (back, tilted left) -->
-    <g transform="translate(400, 490) rotate(-8)">
-      <circle cx="0" cy="0" r="155" fill="url(#vinyl)" stroke="#333" stroke-width="1.5"/>
-      <circle cx="0" cy="0" r="115" fill="none" stroke="#333" stroke-width="0.8" opacity="0.5"/>
-      <circle cx="0" cy="0" r="85" fill="none" stroke="#333" stroke-width="0.8" opacity="0.35"/>
-      <circle cx="0" cy="0" r="55" fill="none" stroke="#333" stroke-width="0.8" opacity="0.25"/>
-      <circle cx="0" cy="0" r="32" fill="#c0392b"/>
-      <circle cx="0" cy="0" r="7" fill="#1a1a1a"/>
-    </g>
+  <!-- Vinyl record 2 (front, tilted right) -->
+  <g transform="translate(540, 480) rotate(5)">
+    <circle cx="0" cy="0" r="155" fill="url(#vinyl)" stroke="#333" stroke-width="1.5"/>
+    <circle cx="0" cy="0" r="115" fill="none" stroke="#333" stroke-width="0.8" opacity="0.5"/>
+    <circle cx="0" cy="0" r="85" fill="none" stroke="#333" stroke-width="0.8" opacity="0.35"/>
+    <circle cx="0" cy="0" r="55" fill="none" stroke="#333" stroke-width="0.8" opacity="0.25"/>
+    <circle cx="0" cy="0" r="32" fill="#2980b9"/>
+    <circle cx="0" cy="0" r="7" fill="#1a1a1a"/>
+  </g>
 
-    <!-- Vinyl record 2 (front, tilted right) -->
-    <g transform="translate(540, 480) rotate(5)">
-      <circle cx="0" cy="0" r="155" fill="url(#vinyl)" stroke="#333" stroke-width="1.5"/>
-      <circle cx="0" cy="0" r="115" fill="none" stroke="#333" stroke-width="0.8" opacity="0.5"/>
-      <circle cx="0" cy="0" r="85" fill="none" stroke="#333" stroke-width="0.8" opacity="0.35"/>
-      <circle cx="0" cy="0" r="55" fill="none" stroke="#333" stroke-width="0.8" opacity="0.25"/>
-      <circle cx="0" cy="0" r="32" fill="#2980b9"/>
-      <circle cx="0" cy="0" r="7" fill="#1a1a1a"/>
-    </g>
+  <!-- Crate front panel -->
+  <rect x="200" y="630" width="560" height="130" rx="10" fill="url(#crateFront)"/>
 
-    <!-- Crate front panel -->
-    <rect x="200" y="630" width="560" height="130" rx="10" fill="url(#crateFront)"/>
+  <!-- Wood slat on front -->
+  <line x1="200" y1="695" x2="760" y2="695" stroke="#5a4010" stroke-width="2" opacity="0.35"/>
 
-    <!-- Wood slat on front -->
-    <line x1="200" y1="695" x2="760" y2="695" stroke="#5a4010" stroke-width="2" opacity="0.35"/>
+  <!-- Crate left side -->
+  <path d="M200,630 L220,340 L220,720 L200,760 Z" fill="#7A5C14" opacity="0.6"/>
 
-    <!-- Crate left side -->
-    <path d="M200,630 L220,340 L220,720 L200,760 Z" fill="#7A5C14" opacity="0.6"/>
+  <!-- Crate right side -->
+  <path d="M760,630 L740,340 L740,720 L760,760 Z" fill="#6B4F12" opacity="0.6"/>
 
-    <!-- Crate right side -->
-    <path d="M760,630 L740,340 L740,720 L760,760 Z" fill="#6B4F12" opacity="0.6"/>
+  <!-- Crate handle cutout -->
+  <rect x="390" y="660" width="180" height="36" rx="18" fill="#3a2a0a" opacity="0.5"/>
 
-    <!-- Crate handle cutout -->
-    <rect x="390" y="660" width="180" height="36" rx="18" fill="#3a2a0a" opacity="0.5"/>
-
-    <!-- Sync arrow badge (bottom right) -->
-    <g transform="translate(740, 790)">
-      <circle cx="0" cy="0" r="88" fill="white"/>
-      <circle cx="0" cy="0" r="80" fill="white" stroke="url(#arrow)" stroke-width="5"/>
-      <path d="M 0,-48 A 48,48 0 1,1 -42,24" fill="none" stroke="url(#arrow)" stroke-width="11" stroke-linecap="round"/>
-      <polygon points="-54,12 -32,34 -28,8" fill="url(#arrow)"/>
-    </g>
+  <!-- Sync arrow badge (bottom right) -->
+  <g transform="translate(740, 790)">
+    <circle cx="0" cy="0" r="88" fill="white"/>
+    <circle cx="0" cy="0" r="80" fill="white" stroke="url(#arrow)" stroke-width="5"/>
+    <path d="M 0,-48 A 48,48 0 1,1 -42,24" fill="none" stroke="url(#arrow)" stroke-width="11" stroke-linecap="round"/>
+    <polygon points="-54,12 -32,34 -28,8" fill="url(#arrow)"/>
   </g>
 </svg>
