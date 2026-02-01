@@ -7,6 +7,7 @@ final class USBSyncViewModel: ObservableObject {
     @Published var selectedVolume: URL?
     @Published var playlistSelections: [String: Bool] = [:]
     @Published var plan: USBSyncPlan?
+    @Published var copySelections: Set<String> = []
     @Published var isSyncing: Bool = false
     @Published var statusMessage: String = ""
     @Published var errorMessage: String?
@@ -50,8 +51,19 @@ final class USBSyncViewModel: ObservableObject {
 
     private func loadPlaylists() {
         playlistSelections = [:]
-        for child in library.rootNode.children where child.isPlaylist {
-            playlistSelections[child.name] = false
+        for child in library.rootNode.children {
+            collectPlaylists(node: child, prefix: "")
+        }
+    }
+
+    private func collectPlaylists(node: PlaylistNode, prefix: String) {
+        let path = prefix.isEmpty ? node.name : "\(prefix)/\(node.name)"
+        if node.isPlaylist {
+            playlistSelections[path] = false
+        } else {
+            for child in node.children {
+                collectPlaylists(node: child, prefix: path)
+            }
         }
     }
 
@@ -80,6 +92,7 @@ final class USBSyncViewModel: ObservableObject {
     func planSync() {
         errorMessage = nil
         plan = nil
+        copySelections = []
 
         guard let volume = selectedVolume else {
             errorMessage = "No volume selected."
@@ -92,19 +105,20 @@ final class USBSyncViewModel: ObservableObject {
             return
         }
 
-        let selectedNames = Set(selectedPlaylistNames)
-        var tracks: [Track] = []
-        for child in library.rootNode.children where child.isPlaylist && selectedNames.contains(child.name) {
-            for key in child.trackKeys {
-                if let track = library.tracks[key] {
-                    tracks.append(track)
-                }
-            }
+        let selectedPaths = Set(selectedPlaylistNames)
+        var trackKeys: [Int] = []
+        for child in library.rootNode.children {
+            collectTrackKeys(node: child, prefix: "", selectedPaths: selectedPaths, into: &trackKeys)
+        }
+        let seen = NSMutableSet()
+        let tracks = trackKeys.compactMap { key -> Track? in
+            guard !seen.contains(key), let track = library.tracks[key] else { return nil }
+            seen.add(key)
+            return track
         }
 
         do {
-            let manifest = try USBManifest.load(from: volume.appendingPathComponent(".rekordboxer_manifest.json"))
-            let result = try USBSync.plan(tracks: tracks, usbRoot: volume, manifest: manifest)
+            let result = try USBSync.plan(tracks: tracks, usbRoot: volume)
             self.plan = result
             statusMessage = "\(result.filesToCopy.count) files to copy"
         } catch {
@@ -112,18 +126,38 @@ final class USBSyncViewModel: ObservableObject {
         }
     }
 
+    private func collectTrackKeys(node: PlaylistNode, prefix: String, selectedPaths: Set<String>, into keys: inout [Int]) {
+        let path = prefix.isEmpty ? node.name : "\(prefix)/\(node.name)"
+        if node.isPlaylist {
+            if selectedPaths.contains(path) {
+                keys.append(contentsOf: node.trackKeys)
+            }
+        } else {
+            for child in node.children {
+                collectTrackKeys(node: child, prefix: path, selectedPaths: selectedPaths, into: &keys)
+            }
+        }
+    }
+
     func executeSync() {
         guard let plan = plan else { return }
+        let selectedFiles = plan.filesToCopy.filter { copySelections.contains($0.filename) }
+        guard !selectedFiles.isEmpty else {
+            errorMessage = "No files selected to copy."
+            return
+        }
+        let filteredPlan = USBSyncPlan(filesToCopy: selectedFiles, usbRoot: plan.usbRoot)
+
         errorMessage = nil
         isSyncing = true
         statusMessage = "Copying files..."
 
         Task {
             do {
-                let manifest = try USBSync.execute(plan: plan)
-                try manifest.save(to: plan.usbRoot.appendingPathComponent(".rekordboxer_manifest.json"))
+                try USBSync.execute(plan: filteredPlan)
                 self.plan = nil
-                self.statusMessage = "USB sync complete! Copied \(plan.filesToCopy.count) files."
+                self.copySelections = []
+                self.statusMessage = "USB sync complete! Copied \(filteredPlan.filesToCopy.count) files."
             } catch {
                 self.errorMessage = "Sync failed: \(error.localizedDescription)"
             }

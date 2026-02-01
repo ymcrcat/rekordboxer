@@ -50,14 +50,23 @@ struct USBSyncView: View {
                 }
 
                 if let plan = viewModel.plan {
-                    Section("Sync Plan") {
-                        Text("\(plan.filesToCopy.count) files to copy")
-                            .font(.headline)
+                    Section("Files with different sizes (\(plan.filesToCopy.count))") {
                         ForEach(plan.filesToCopy, id: \.filename) { file in
-                            HStack {
-                                Image(systemName: "doc.fill")
-                                    .foregroundStyle(.blue)
-                                Text(file.filename)
+                            Toggle(isOn: Binding(
+                                get: { viewModel.copySelections.contains(file.filename) },
+                                set: { selected in
+                                    if selected {
+                                        viewModel.copySelections.insert(file.filename)
+                                    } else {
+                                        viewModel.copySelections.remove(file.filename)
+                                    }
+                                }
+                            )) {
+                                HStack {
+                                    Image(systemName: "doc.fill")
+                                        .foregroundStyle(.blue)
+                                    Text(file.filename)
+                                }
                             }
                         }
                     }
@@ -89,9 +98,9 @@ struct USBSyncView: View {
                 Button {
                     viewModel.executeSync()
                 } label: {
-                    Label("Sync to USB", systemImage: "externaldrive.fill.badge.plus")
+                    Label("Copy \(viewModel.copySelections.count) to USB", systemImage: "externaldrive.fill.badge.plus")
                 }
-                .disabled(viewModel.isSyncing)
+                .disabled(viewModel.isSyncing || viewModel.copySelections.isEmpty)
             }
         }
         .padding()

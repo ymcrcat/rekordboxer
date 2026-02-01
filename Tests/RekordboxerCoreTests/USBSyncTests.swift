@@ -25,7 +25,7 @@ final class USBSyncTests: XCTestCase {
         FileManager.default.createFile(atPath: sourceDir.appendingPathComponent("new.mp3").path, contents: Data("audio".utf8))
 
         let tracks = [makeTrack(path: sourceDir.appendingPathComponent("new.mp3").path)]
-        let plan = try USBSync.plan(tracks: tracks, usbRoot: usbDir, manifest: USBManifest())
+        let plan = try USBSync.plan(tracks: tracks, usbRoot: usbDir)
 
         XCTAssertEqual(plan.filesToCopy.count, 0)
     }
@@ -38,12 +38,7 @@ final class USBSyncTests: XCTestCase {
         FileManager.default.createFile(atPath: usbPath.path, contents: data)
 
         let tracks = [makeTrack(path: sourcePath.path)]
-        var manifest = USBManifest()
-        let attrs = try FileManager.default.attributesOfItem(atPath: sourcePath.path)
-        let modDate = attrs[.modificationDate] as! Date
-        manifest.entries["existing.mp3"] = USBManifestEntry(size: Int64(data.count), modificationDate: modDate)
-
-        let plan = try USBSync.plan(tracks: tracks, usbRoot: usbDir, manifest: manifest)
+        let plan = try USBSync.plan(tracks: tracks, usbRoot: usbDir)
         XCTAssertEqual(plan.filesToCopy.count, 0)
     }
 
@@ -54,10 +49,7 @@ final class USBSyncTests: XCTestCase {
         FileManager.default.createFile(atPath: usbPath.path, contents: Data("old".utf8))
 
         let tracks = [makeTrack(path: sourcePath.path)]
-        var manifest = USBManifest()
-        manifest.entries["changed.mp3"] = USBManifestEntry(size: 3, modificationDate: Date.distantPast)
-
-        let plan = try USBSync.plan(tracks: tracks, usbRoot: usbDir, manifest: manifest)
+        let plan = try USBSync.plan(tracks: tracks, usbRoot: usbDir)
         XCTAssertEqual(plan.filesToCopy.count, 1)
         // Should target the existing location on USB, not the root
         XCTAssertTrue(plan.filesToCopy[0].destination.path.hasSuffix("Contents/Artist/Album/changed.mp3"))
@@ -72,13 +64,12 @@ final class USBSyncTests: XCTestCase {
         FileManager.default.createFile(atPath: usbPath.path, contents: oldData)
 
         let tracks = [makeTrack(path: sourcePath.path)]
-        let plan = try USBSync.plan(tracks: tracks, usbRoot: usbDir, manifest: USBManifest())
-        let manifest = try USBSync.execute(plan: plan)
+        let plan = try USBSync.plan(tracks: tracks, usbRoot: usbDir)
+        try USBSync.execute(plan: plan)
 
         // File should be updated in its original rekordbox location
         XCTAssertTrue(FileManager.default.fileExists(atPath: usbPath.path))
         XCTAssertEqual(try Data(contentsOf: usbPath), newData)
-        XCTAssertNotNil(manifest.entries["update_me.mp3"])
     }
 
     func testSelectivePlaylistSync() throws {
@@ -89,7 +80,7 @@ final class USBSyncTests: XCTestCase {
         FileManager.default.createFile(atPath: contentsDir.appendingPathComponent("Artist/Album/house.mp3").path, contents: Data("old".utf8))
 
         let tracks = [makeTrack(path: sourceDir.appendingPathComponent("house.mp3").path)]
-        let plan = try USBSync.plan(tracks: tracks, usbRoot: usbDir, manifest: USBManifest())
+        let plan = try USBSync.plan(tracks: tracks, usbRoot: usbDir)
 
         XCTAssertEqual(plan.filesToCopy.count, 1)
         XCTAssertEqual(plan.filesToCopy[0].source.lastPathComponent, "house.mp3")
