@@ -45,13 +45,25 @@ public enum USBSync {
         let fm = FileManager.default
         var copies: [USBSyncPlan.FileCopy] = []
 
+        // Build an index of all files already on the USB so we can find
+        // where rekordbox placed each track (typically Contents/Artist/Album/file)
+        let contentsDir = usbRoot.appendingPathComponent("Contents")
+        let usbFileIndex: [String: URL]
+        if fm.fileExists(atPath: contentsDir.path) {
+            usbFileIndex = try buildFileIndex(root: contentsDir)
+        } else {
+            usbFileIndex = try buildFileIndex(root: usbRoot)
+        }
+
         for track in tracks {
             let sourcePath = track.filePath
             let sourceURL = URL(fileURLWithPath: sourcePath)
             let filename = sourceURL.lastPathComponent
-            let destURL = usbRoot.appendingPathComponent(filename)
 
             guard fm.fileExists(atPath: sourcePath) else { continue }
+
+            // Find existing file on USB by filename
+            guard let existingUSBPath = usbFileIndex[filename] else { continue }
 
             let attrs = try fm.attributesOfItem(atPath: sourcePath)
             let sourceSize = (attrs[.size] as? Int64) ?? 0
@@ -63,7 +75,7 @@ public enum USBSync {
                 }
             }
 
-            copies.append(USBSyncPlan.FileCopy(source: sourceURL, destination: destURL, filename: filename))
+            copies.append(USBSyncPlan.FileCopy(source: sourceURL, destination: existingUSBPath, filename: filename))
         }
 
         return USBSyncPlan(filesToCopy: copies, usbRoot: usbRoot)
@@ -87,5 +99,21 @@ public enum USBSync {
         }
 
         return manifest
+    }
+
+    /// Build an index of filenames to their paths within a directory tree.
+    private static func buildFileIndex(root: URL) throws -> [String: URL] {
+        let fm = FileManager.default
+        var index: [String: URL] = [:]
+        guard let enumerator = fm.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey]) else {
+            return index
+        }
+        for case let fileURL as URL in enumerator {
+            let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey])
+            if values?.isRegularFile == true {
+                index[fileURL.lastPathComponent] = fileURL
+            }
+        }
+        return index
     }
 }

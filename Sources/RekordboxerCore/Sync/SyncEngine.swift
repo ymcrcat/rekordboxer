@@ -4,13 +4,13 @@ public struct SyncDiff {
     public let newTracks: [ScannedFile]
     public let removedTracks: [Track]
     public let unchangedCount: Int
-    public let playlistMapping: [(playlistName: String, fileURLs: [URL])]
+    public let scannedFolders: [ScannedFolder]
 
-    public init(newTracks: [ScannedFile], removedTracks: [Track], unchangedCount: Int, playlistMapping: [(playlistName: String, fileURLs: [URL])]) {
+    public init(newTracks: [ScannedFile], removedTracks: [Track], unchangedCount: Int, scannedFolders: [ScannedFolder]) {
         self.newTracks = newTracks
         self.removedTracks = removedTracks
         self.unchangedCount = unchangedCount
-        self.playlistMapping = playlistMapping
+        self.scannedFolders = scannedFolders
     }
 }
 
@@ -21,21 +21,17 @@ public enum SyncEngine {
             existingPaths.insert(track.filePath)
         }
 
+        // Collect all scanned file paths and detect new files
+        let allFiles = scannedFolders.flatMap { $0.allFiles }
         var scannedPaths: Set<String> = []
         var newFiles: [ScannedFile] = []
-        var playlistMapping: [(String, [URL])] = []
 
-        for folder in scannedFolders {
-            var folderURLs: [URL] = []
-            for file in folder.files {
-                let path = file.url.path
-                scannedPaths.insert(path)
-                folderURLs.append(file.url)
-                if !existingPaths.contains(path) {
-                    newFiles.append(file)
-                }
+        for file in allFiles {
+            let path = file.url.path
+            scannedPaths.insert(path)
+            if !existingPaths.contains(path) {
+                newFiles.append(file)
             }
-            playlistMapping.append((folder.folderName, folderURLs))
         }
 
         let removedTracks = library.tracks.values.filter { track in
@@ -48,7 +44,7 @@ public enum SyncEngine {
             newTracks: newFiles,
             removedTracks: removedTracks,
             unchangedCount: unchangedCount,
-            playlistMapping: playlistMapping
+            scannedFolders: scannedFolders
         )
     }
 
@@ -74,21 +70,50 @@ public enum SyncEngine {
             library.tracks[trackID] = track
         }
 
-        var playlistNodes: [PlaylistNode] = []
-        for (playlistName, fileURLs) in diff.playlistMapping {
-            let trackKeys = fileURLs.compactMap { url -> Int? in
-                idMap.trackID(for: url.path)
-            }
-            if !trackKeys.isEmpty {
-                playlistNodes.append(PlaylistNode(
-                    type: .playlist,
-                    name: playlistName,
-                    children: [],
-                    trackKeys: trackKeys
-                ))
-            }
+        // Build nested playlist tree mirroring the folder structure
+        let children = diff.scannedFolders.compactMap { folder in
+            buildPlaylistNode(from: folder, idMap: idMap)
         }
-        library.rootNode = PlaylistNode(type: .folder, name: "ROOT", children: playlistNodes, trackKeys: [])
+        library.rootNode = PlaylistNode(type: .folder, name: "ROOT", children: children, trackKeys: [])
+    }
+
+    /// Recursively convert a ScannedFolder tree into a PlaylistNode tree.
+    /// - Folders with only subfolders become playlist folders
+    /// - Folders with audio files become playlists (containing those files)
+    /// - Folders with both get a playlist for their files plus child folders
+    private static func buildPlaylistNode(from folder: ScannedFolder, idMap: TrackIDMap) -> PlaylistNode? {
+        let directTrackKeys = folder.files.compactMap { file -> Int? in
+            idMap.trackID(for: file.url.path)
+        }
+
+        let childNodes = folder.children.compactMap { child in
+            buildPlaylistNode(from: child, idMap: idMap)
+        }
+
+        // No files and no children with files — skip
+        if directTrackKeys.isEmpty && childNodes.isEmpty {
+            return nil
+        }
+
+        // Leaf folder (has files, no subfolders) — make a playlist
+        if childNodes.isEmpty {
+            return PlaylistNode(type: .playlist, name: folder.folderName, children: [], trackKeys: directTrackKeys)
+        }
+
+        // Has subfolders — make a folder node
+        var children = childNodes
+
+        // If this folder also has direct audio files, add a playlist for them
+        if !directTrackKeys.isEmpty {
+            children.insert(PlaylistNode(
+                type: .playlist,
+                name: folder.folderName,
+                children: [],
+                trackKeys: directTrackKeys
+            ), at: 0)
+        }
+
+        return PlaylistNode(type: .folder, name: folder.folderName, children: children, trackKeys: [])
     }
 
     private static func audioKind(for ext: String) -> String {

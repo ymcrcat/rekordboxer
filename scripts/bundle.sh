@@ -19,6 +19,9 @@ mkdir -p "$MACOS" "$RESOURCES"
 # Copy binary
 cp "$BUILD_DIR/.build/release/$APP_NAME" "$MACOS/$APP_NAME"
 
+# Copy icon
+cp "$BUILD_DIR/Resources/AppIcon.icns" "$RESOURCES/AppIcon.icns"
+
 # Write Info.plist
 cat > "$CONTENTS/Info.plist" << 'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -43,6 +46,8 @@ cat > "$CONTENTS/Info.plist" << 'PLIST'
     <string>14.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.music</string>
 </dict>

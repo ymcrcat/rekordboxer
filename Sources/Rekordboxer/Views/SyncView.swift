@@ -21,7 +21,7 @@ struct SyncView: View {
             }
 
             if let diff = viewModel.diff {
-                diffList(diff)
+                diffContent(diff)
             } else {
                 Spacer()
                 VStack(spacing: 12) {
@@ -65,19 +65,15 @@ struct SyncView: View {
         .padding()
     }
 
-    private func diffList(_ diff: SyncDiff) -> some View {
+    private func diffContent(_ diff: SyncDiff) -> some View {
         List {
-            if !diff.newTracks.isEmpty {
+            if !viewModel.scannedFolders.isEmpty {
                 Section {
-                    ForEach(diff.newTracks, id: \.url) { file in
-                        HStack {
-                            Image(systemName: "plus.circle.fill")
-                                .foregroundStyle(.green)
-                            Text(file.url.lastPathComponent)
-                        }
+                    ForEach(viewModel.scannedFolders, id: \.folderURL) { folder in
+                        FolderRow(folder: folder, viewModel: viewModel)
                     }
                 } header: {
-                    Text("New Tracks (\(diff.newTracks.count))")
+                    Text("Folders")
                 }
             }
 
@@ -113,13 +109,13 @@ struct SyncView: View {
 
             Section {
                 HStack {
-                    Image(systemName: "checkmark.circle.fill")
+                    Image(systemName: "music.note.list")
                         .foregroundStyle(.blue)
-                    Text("\(diff.unchangedCount) unchanged tracks")
+                    Text("\(viewModel.selectedNewTrackCount) new tracks in \(viewModel.selectedFolderCount) selected folders, \(diff.removedTracks.count) removed, \(diff.unchangedCount) unchanged")
                         .foregroundStyle(.secondary)
                 }
             } header: {
-                Text("Unchanged")
+                Text("Summary")
             }
         }
     }
@@ -137,5 +133,65 @@ struct SyncView: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 6)
+    }
+}
+
+struct FolderRow: View {
+    let folder: ScannedFolder
+    @ObservedObject var viewModel: SyncViewModel
+
+    var body: some View {
+        if folder.children.isEmpty {
+            leafRow
+        } else {
+            DisclosureGroup {
+                ForEach(folder.children, id: \.folderURL) { child in
+                    FolderRow(folder: child, viewModel: viewModel)
+                }
+            } label: {
+                folderLabel
+            }
+        }
+    }
+
+    private var leafRow: some View {
+        folderLabel
+    }
+
+    private var folderLabel: some View {
+        HStack {
+            Button {
+                viewModel.toggleFolder(folder)
+            } label: {
+                checkboxImage
+            }
+            .buttonStyle(.plain)
+
+            Image(systemName: "folder.fill")
+                .foregroundStyle(.secondary)
+            Text(folder.folderName)
+            Spacer()
+            Text("\(folder.allFiles.count)")
+                .font(.caption)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(.quaternary)
+                .clipShape(Capsule())
+        }
+    }
+
+    @ViewBuilder
+    private var checkboxImage: some View {
+        switch viewModel.folderCheckState(folder) {
+        case .checked:
+            Image(systemName: "checkmark.square.fill")
+                .foregroundStyle(.blue)
+        case .unchecked:
+            Image(systemName: "square")
+                .foregroundStyle(.secondary)
+        case .mixed:
+            Image(systemName: "minus.square.fill")
+                .foregroundStyle(.blue)
+        }
     }
 }
