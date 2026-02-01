@@ -59,8 +59,16 @@ final class USBSyncViewModel: ObservableObject {
         let fm = FileManager.default
         let volumesURL = URL(fileURLWithPath: "/Volumes")
         do {
-            let contents = try fm.contentsOfDirectory(at: volumesURL, includingPropertiesForKeys: nil)
-            mountedVolumes = contents.sorted { $0.lastPathComponent < $1.lastPathComponent }
+            let contents = try fm.contentsOfDirectory(at: volumesURL, includingPropertiesForKeys: [.volumeIsRemovableKey, .volumeIsInternalKey])
+            mountedVolumes = contents.filter { url in
+                // Filter out internal/boot volumes — only show removable or external drives
+                guard let values = try? url.resourceValues(forKeys: [.volumeIsRemovableKey, .volumeIsInternalKey]) else {
+                    return false
+                }
+                let isRemovable = values.volumeIsRemovable ?? false
+                let isInternal = values.volumeIsInternal ?? true
+                return isRemovable || !isInternal
+            }.sorted { $0.lastPathComponent < $1.lastPathComponent }
             if selectedVolume == nil, let first = mountedVolumes.first {
                 selectedVolume = first
             }
