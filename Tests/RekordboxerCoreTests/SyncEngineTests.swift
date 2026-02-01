@@ -158,6 +158,44 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(techPlaylist.name, "Tech")
     }
 
+    func testApplyPrefixesPlaylistOnNameCollision() {
+        var library = RekordboxLibrary()
+        var idMap = TrackIDMap()
+
+        let parentFile = ScannedFile(url: URL(fileURLWithPath: "/music/House/track1.mp3"), size: 1000, modificationDate: Date())
+        let childFile = ScannedFile(url: URL(fileURLWithPath: "/music/House/House/track2.mp3"), size: 1000, modificationDate: Date())
+
+        let folders = [
+            ScannedFolder(folderName: "House", folderURL: URL(fileURLWithPath: "/music/House"), files: [parentFile], children: [
+                ScannedFolder(folderName: "House", folderURL: URL(fileURLWithPath: "/music/House/House"), files: [childFile], children: []),
+            ])
+        ]
+        let diff = SyncDiff(
+            newTracks: [parentFile, childFile],
+            removedTracks: [],
+            unchangedCount: 0,
+            scannedFolders: folders
+        )
+
+        SyncEngine.apply(diff: diff, to: &library, idMap: &idMap, removals: [])
+
+        let house = library.rootNode.children[0]
+        XCTAssertTrue(house.isFolder)
+        XCTAssertEqual(house.children.count, 2)
+
+        // Direct files playlist should be prefixed to avoid collision
+        let directPlaylist = house.children[0]
+        XCTAssertTrue(directPlaylist.isPlaylist)
+        XCTAssertEqual(directPlaylist.name, "_House")
+        XCTAssertEqual(directPlaylist.trackKeys.count, 1)
+
+        // Subfolder playlist keeps original name
+        let subPlaylist = house.children[1]
+        XCTAssertTrue(subPlaylist.isPlaylist)
+        XCTAssertEqual(subPlaylist.name, "House")
+        XCTAssertEqual(subPlaylist.trackKeys.count, 1)
+    }
+
     func testTrackIDMapStability() {
         var idMap = TrackIDMap()
         let id1 = idMap.getOrAssign(path: "/music/track1.mp3")

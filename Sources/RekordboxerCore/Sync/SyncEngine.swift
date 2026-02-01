@@ -105,9 +105,13 @@ public enum SyncEngine {
 
         // If this folder also has direct audio files, add a playlist for them
         if !directTrackKeys.isEmpty {
+            let childNames = Set(childNodes.map { $0.name })
+            let playlistName = childNames.contains(folder.folderName)
+                ? "_\(folder.folderName)"
+                : folder.folderName
             children.insert(PlaylistNode(
                 type: .playlist,
-                name: folder.folderName,
+                name: playlistName,
                 children: [],
                 trackKeys: directTrackKeys
             ), at: 0)
