@@ -4,7 +4,8 @@ import SwiftUI
 struct RekordboxerApp: App {
     var body: some Scene {
         WindowGroup {
-            Text("Rekordboxer")
+            ContentView()
+                .frame(minWidth: 700, minHeight: 500)
         }
     }
 }
