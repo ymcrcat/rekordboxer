@@ -107,15 +107,17 @@ struct USBSyncView: View {
     }
 
     private var statusBar: some View {
-        HStack {
+        VStack(spacing: 4) {
             if viewModel.isSyncing {
-                ProgressView()
-                    .controlSize(.small)
+                ProgressView(value: viewModel.syncProgress)
+                    .progressViewStyle(.linear)
             }
-            Text(viewModel.statusMessage)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer()
+            HStack {
+                Text(viewModel.statusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
         }
         .padding(.horizontal)
         .padding(.vertical, 6)

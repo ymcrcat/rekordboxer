@@ -11,6 +11,8 @@ final class USBSyncViewModel: ObservableObject {
     @Published var isSyncing: Bool = false
     @Published var statusMessage: String = ""
     @Published var errorMessage: String?
+    @Published var syncProgress: Double = 0
+    @Published var syncCurrentFile: String = ""
 
     private var settings = AppSettings()
     private var library = RekordboxLibrary()
@@ -150,18 +152,33 @@ final class USBSyncViewModel: ObservableObject {
 
         errorMessage = nil
         isSyncing = true
+        syncProgress = 0
+        syncCurrentFile = ""
         statusMessage = "Copying files..."
 
-        Task {
+        Task.detached { [filteredPlan] in
             do {
-                try USBSync.execute(plan: filteredPlan)
-                self.plan = nil
-                self.copySelections = []
-                self.statusMessage = "USB sync complete! Copied \(filteredPlan.filesToCopy.count) files."
+                try USBSync.execute(plan: filteredPlan) { completed, total, filename in
+                    Task { @MainActor in
+                        self.syncProgress = Double(completed) / Double(total)
+                        self.syncCurrentFile = filename
+                        if completed < total {
+                            self.statusMessage = "Copying \(completed + 1) of \(total): \(filename)"
+                        }
+                    }
+                }
+                await MainActor.run {
+                    self.plan = nil
+                    self.copySelections = []
+                    self.statusMessage = "USB sync complete! Copied \(filteredPlan.filesToCopy.count) files."
+                    self.isSyncing = false
+                }
             } catch {
-                self.errorMessage = "Sync failed: \(error.localizedDescription)"
+                await MainActor.run {
+                    self.errorMessage = "Sync failed: \(error.localizedDescription)"
+                    self.isSyncing = false
+                }
             }
-            self.isSyncing = false
         }
     }
 }

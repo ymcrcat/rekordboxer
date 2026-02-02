@@ -55,15 +55,18 @@ public enum USBSync {
         return USBSyncPlan(filesToCopy: copies, usbRoot: usbRoot)
     }
 
-    public static func execute(plan: USBSyncPlan) throws {
+    public static func execute(plan: USBSyncPlan, progress: ((Int, Int, String) -> Void)? = nil) throws {
         let fm = FileManager.default
+        let total = plan.filesToCopy.count
 
-        for copy in plan.filesToCopy {
+        for (index, copy) in plan.filesToCopy.enumerated() {
+            progress?(index, total, copy.filename)
             if fm.fileExists(atPath: copy.destination.path) {
                 try fm.removeItem(at: copy.destination)
             }
             try fm.copyItem(at: copy.source, to: copy.destination)
         }
+        progress?(total, total, "")
     }
 
     /// Build an index of filenames to their paths within a directory tree.
