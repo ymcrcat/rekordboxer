@@ -5,7 +5,8 @@ import RekordboxerCore
 final class USBSyncViewModel: ObservableObject {
     @Published var mountedVolumes: [URL] = []
     @Published var selectedVolume: URL?
-    @Published var playlistSelections: [String: Bool] = [:]
+    @Published var selectedPlaylists: Set<String> = []
+    @Published var playlistNodes: [PlaylistNode] = []
     @Published var plan: USBSyncPlan?
     @Published var copySelections: Set<String> = []
     @Published var isSyncing: Bool = false
@@ -44,30 +45,54 @@ final class USBSyncViewModel: ObservableObject {
         do {
             let data = try Data(contentsOf: url)
             library = try RekordboxXMLParser.parse(data: data)
-            loadPlaylists()
+            playlistNodes = library.rootNode.children
             statusMessage = "Library loaded: \(library.tracks.count) tracks"
         } catch {
             errorMessage = "Failed to load XML: \(error.localizedDescription)"
         }
     }
 
-    private func loadPlaylists() {
-        playlistSelections = [:]
-        for child in library.rootNode.children {
-            collectPlaylists(node: child, prefix: "")
+    // MARK: - Playlist Selection
+
+    func toggleNode(_ node: PlaylistNode, prefix: String) {
+        let paths = allPlaylistPaths(node: node, prefix: prefix)
+        if checkState(for: node, prefix: prefix) == .checked {
+            selectedPlaylists.subtract(paths)
+        } else {
+            selectedPlaylists.formUnion(paths)
         }
     }
 
-    private func collectPlaylists(node: PlaylistNode, prefix: String) {
+    func checkState(for node: PlaylistNode, prefix: String) -> CheckState {
         let path = prefix.isEmpty ? node.name : "\(prefix)/\(node.name)"
         if node.isPlaylist {
-            playlistSelections[path] = false
+            return selectedPlaylists.contains(path) ? .checked : .unchecked
+        }
+        let paths = allPlaylistPaths(node: node, prefix: prefix)
+        if paths.isEmpty { return .unchecked }
+        let selectedCount = paths.filter { selectedPlaylists.contains($0) }.count
+        if selectedCount == 0 {
+            return .unchecked
+        } else if selectedCount == paths.count {
+            return .checked
         } else {
-            for child in node.children {
-                collectPlaylists(node: child, prefix: path)
-            }
+            return .mixed
         }
     }
+
+    func allPlaylistPaths(node: PlaylistNode, prefix: String) -> Set<String> {
+        let path = prefix.isEmpty ? node.name : "\(prefix)/\(node.name)"
+        if node.isPlaylist {
+            return [path]
+        }
+        var result = Set<String>()
+        for child in node.children {
+            result.formUnion(allPlaylistPaths(node: child, prefix: path))
+        }
+        return result
+    }
+
+    // MARK: - Volumes
 
     func refreshVolumes() {
         let fm = FileManager.default
@@ -75,7 +100,6 @@ final class USBSyncViewModel: ObservableObject {
         do {
             let contents = try fm.contentsOfDirectory(at: volumesURL, includingPropertiesForKeys: [.volumeIsRemovableKey, .volumeIsInternalKey])
             mountedVolumes = contents.filter { url in
-                // Filter out internal/boot volumes — only show removable or external drives
                 guard let values = try? url.resourceValues(forKeys: [.volumeIsRemovableKey, .volumeIsInternalKey]) else {
                     return false
                 }
@@ -91,6 +115,8 @@ final class USBSyncViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Plan & Sync
+
     func planSync() {
         errorMessage = nil
         plan = nil
@@ -101,16 +127,14 @@ final class USBSyncViewModel: ObservableObject {
             return
         }
 
-        let selectedPlaylistNames = playlistSelections.filter { $0.value }.map { $0.key }
-        guard !selectedPlaylistNames.isEmpty else {
+        guard !selectedPlaylists.isEmpty else {
             errorMessage = "No playlists selected."
             return
         }
 
-        let selectedPaths = Set(selectedPlaylistNames)
         var trackKeys: [Int] = []
         for child in library.rootNode.children {
-            collectTrackKeys(node: child, prefix: "", selectedPaths: selectedPaths, into: &trackKeys)
+            collectTrackKeys(node: child, prefix: "", selectedPaths: selectedPlaylists, into: &trackKeys)
         }
         let seen = NSMutableSet()
         let tracks = trackKeys.compactMap { key -> Track? in

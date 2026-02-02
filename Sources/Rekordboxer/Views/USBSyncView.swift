@@ -36,15 +36,12 @@ struct USBSyncView: View {
                 }
 
                 Section("Playlists") {
-                    if viewModel.playlistSelections.isEmpty {
+                    if viewModel.playlistNodes.isEmpty {
                         Text("No playlists found. Run Library Sync first.")
                             .foregroundStyle(.secondary)
                     } else {
-                        ForEach(viewModel.playlistSelections.keys.sorted(), id: \.self) { name in
-                            Toggle(name, isOn: Binding(
-                                get: { viewModel.playlistSelections[name] ?? false },
-                                set: { viewModel.playlistSelections[name] = $0 }
-                            ))
+                        ForEach(viewModel.playlistNodes, id: \.name) { node in
+                            PlaylistRow(node: node, prefix: "", viewModel: viewModel)
                         }
                     }
                 }
@@ -121,5 +118,71 @@ struct USBSyncView: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 6)
+    }
+}
+
+struct PlaylistRow: View {
+    let node: PlaylistNode
+    let prefix: String
+    @ObservedObject var viewModel: USBSyncViewModel
+
+    var body: some View {
+        if node.isPlaylist {
+            leafRow
+        } else {
+            DisclosureGroup {
+                let childPrefix = prefix.isEmpty ? node.name : "\(prefix)/\(node.name)"
+                ForEach(node.children, id: \.name) { child in
+                    PlaylistRow(node: child, prefix: childPrefix, viewModel: viewModel)
+                        .padding(.leading, 20)
+                }
+            } label: {
+                nodeLabel
+            }
+        }
+    }
+
+    private var leafRow: some View {
+        nodeLabel
+    }
+
+    private var nodeLabel: some View {
+        HStack {
+            Button {
+                viewModel.toggleNode(node, prefix: prefix)
+            } label: {
+                checkboxImage
+            }
+            .buttonStyle(.plain)
+
+            Image(systemName: node.isPlaylist ? "music.note.list" : "folder.fill")
+                .foregroundStyle(.secondary)
+            Text(node.name)
+            Spacer()
+            if !node.isPlaylist {
+                let count = viewModel.allPlaylistPaths(node: node, prefix: prefix).count
+                Text("\(count)")
+                    .font(.caption)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.quaternary)
+                    .clipShape(Capsule())
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var checkboxImage: some View {
+        switch viewModel.checkState(for: node, prefix: prefix) {
+        case .checked:
+            Image(systemName: "checkmark.square.fill")
+                .foregroundStyle(.blue)
+        case .unchecked:
+            Image(systemName: "square")
+                .foregroundStyle(.secondary)
+        case .mixed:
+            Image(systemName: "minus.square.fill")
+                .foregroundStyle(.blue)
+        }
     }
 }

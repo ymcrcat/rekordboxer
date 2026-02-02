@@ -39,5 +39,8 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { _ in
+            selection = .settings
+        }
     }
 }

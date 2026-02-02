@@ -23,6 +23,7 @@ struct SettingsView: View {
                     HStack {
                         TextField("Path to music folder", text: $sourceFolderPath)
                             .textFieldStyle(.roundedBorder)
+                            .labelsHidden()
                         Button("Browse...") {
                             browseFolder()
                         }
