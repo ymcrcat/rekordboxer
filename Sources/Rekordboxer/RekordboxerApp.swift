@@ -7,11 +7,12 @@ extension Notification.Name {
 @main
 struct RekordboxerApp: App {
     var body: some Scene {
-        WindowGroup {
+        Window("Rekordboxer", id: "main") {
             ContentView()
                 .frame(minWidth: 700, minHeight: 500)
         }
         .commands {
+            CommandGroup(replacing: .newItem) {}
             CommandGroup(after: .appSettings) {
                 Button("Settings…") {
                     NotificationCenter.default.post(name: .openSettings, object: nil)
