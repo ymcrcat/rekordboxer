@@ -33,6 +33,10 @@ final class SyncViewModel: ObservableObject {
         }
 
         loadLibrary()
+
+        if !settings.sourceFolderPath.isEmpty {
+            scan()
+        }
     }
 
     private func loadLibrary() {

@@ -28,7 +28,7 @@ struct SyncView: View {
                     Image(systemName: "arrow.triangle.2.circlepath")
                         .font(.system(size: 48))
                         .foregroundStyle(.secondary)
-                    Text("Press Scan to compare your music folder with the Rekordbox XML")
+                    Text("Press Refresh to compare your music folder with the Rekordbox XML")
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -50,7 +50,7 @@ struct SyncView: View {
             Button {
                 viewModel.scan()
             } label: {
-                Label("Scan", systemImage: "magnifyingglass")
+                Label("Refresh", systemImage: "arrow.clockwise")
             }
             .disabled(viewModel.isScanning)
 
