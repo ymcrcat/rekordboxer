@@ -126,9 +126,17 @@ struct SyncView: View {
                 ProgressView()
                     .controlSize(.small)
             }
-            Text(viewModel.statusMessage)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            if viewModel.syncSuccess {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Text(viewModel.statusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.green)
+            } else {
+                Text(viewModel.statusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Spacer()
         }
         .padding(.horizontal)

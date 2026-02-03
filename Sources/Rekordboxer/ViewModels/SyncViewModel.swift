@@ -15,6 +15,7 @@ final class SyncViewModel: ObservableObject {
     @Published var isScanning: Bool = false
     @Published var selectedFolders: Set<String> = []
     @Published var scannedFolders: [ScannedFolder] = []
+    @Published var syncSuccess: Bool = false
 
     private var settings = AppSettings()
     private var idMap = TrackIDMap()
@@ -69,6 +70,7 @@ final class SyncViewModel: ObservableObject {
         removalSelections = []
         scannedFolders = []
         selectedFolders = []
+        syncSuccess = false
 
         // Reload settings and XML in case the user changed paths
         do {
@@ -215,10 +217,15 @@ final class SyncViewModel: ObservableObject {
             try data.write(to: URL(fileURLWithPath: xmlPath))
             try idMap.save(to: AppSettings.trackIDMapURL)
 
-            self.diff = nil
+            // Create an empty diff to keep showing folder structure
+            self.diff = SyncDiff(
+                newTracks: [],
+                removedTracks: [],
+                unchangedCount: library.tracks.count,
+                scannedFolders: scannedFolders
+            )
             self.removalSelections = []
-            self.scannedFolders = []
-            self.selectedFolders = []
+            self.syncSuccess = true
             statusMessage = "Synced! Library now has \(library.tracks.count) tracks."
         } catch {
             errorMessage = "Sync failed: \(error.localizedDescription)"
