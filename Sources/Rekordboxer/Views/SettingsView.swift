@@ -37,6 +37,7 @@ struct SettingsView: View {
                     HStack {
                         TextField("Path to XML file", text: $xmlFilePath)
                             .textFieldStyle(.roundedBorder)
+                            .labelsHidden()
                         Button("Browse...") {
                             browseXML()
                         }
