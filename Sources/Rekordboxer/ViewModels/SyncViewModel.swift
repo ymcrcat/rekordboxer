@@ -1,10 +1,6 @@
 import Foundation
 import RekordboxerCore
 
-enum CheckState {
-    case checked, unchecked, mixed
-}
-
 @MainActor
 final class SyncViewModel: ObservableObject {
     @Published var library = RekordboxLibrary()
@@ -103,9 +99,10 @@ final class SyncViewModel: ObservableObject {
                 let result = SyncEngine.diff(library: librarySnapshot, scannedFolders: folders)
                 await MainActor.run {
                     let existingPaths = Set(librarySnapshot.tracks.values.map { $0.filePath })
+                    let newTrackPaths = Set(result.newTracks.map { $0.url.path })
                     let selected = librarySnapshot.tracks.isEmpty
                         ? SyncViewModel.allFolderPaths(in: folders)
-                        : SyncViewModel.preselectFolders(in: folders, existingPaths: existingPaths)
+                        : SyncViewModel.preselectFolders(in: folders, existingPaths: existingPaths.union(newTrackPaths))
                     self.diff = result
                     self.scannedFolders = folders
                     self.selectedFolders = selected
@@ -184,7 +181,10 @@ final class SyncViewModel: ObservableObject {
     // MARK: - Filtered Sync
 
     func syncToXML() {
-        guard let diff = diff else { return }
+        guard let diff = diff else {
+            errorMessage = "No scan results. Run Scan first."
+            return
+        }
         errorMessage = nil
 
         do {
