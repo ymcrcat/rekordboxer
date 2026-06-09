@@ -27,12 +27,8 @@ public enum USBSync {
         // Build an index of all files already on the USB so we can find
         // where rekordbox placed each track (typically Contents/Artist/Album/file)
         let contentsDir = usbRoot.appendingPathComponent("Contents")
-        let usbFileIndex: [String: [URL]]
-        if fm.fileExists(atPath: contentsDir.path) {
-            usbFileIndex = try buildFileIndex(root: contentsDir)
-        } else {
-            usbFileIndex = try buildFileIndex(root: usbRoot)
-        }
+        let searchRoot = fm.fileExists(atPath: contentsDir.path) ? contentsDir : usbRoot
+        let usbFileIndex = try buildFileIndex(root: searchRoot)
 
         for track in tracks {
             let sourcePath = track.filePath

@@ -55,7 +55,7 @@ final class USBSyncViewModel: ObservableObject {
     // MARK: - Playlist Selection
 
     func toggleNode(_ node: PlaylistNode, prefix: String) {
-        let paths = allPlaylistPaths(node: node, prefix: prefix)
+        let paths = PlaylistSelector.allPaths(node: node, prefix: prefix)
         if checkState(for: node, prefix: prefix) == .checked {
             selectedPlaylists.subtract(paths)
         } else {
@@ -64,32 +64,11 @@ final class USBSyncViewModel: ObservableObject {
     }
 
     func checkState(for node: PlaylistNode, prefix: String) -> CheckState {
-        let path = prefix.isEmpty ? node.name : "\(prefix)/\(node.name)"
-        if node.isPlaylist {
-            return selectedPlaylists.contains(path) ? .checked : .unchecked
-        }
-        let paths = allPlaylistPaths(node: node, prefix: prefix)
-        if paths.isEmpty { return .unchecked }
-        let selectedCount = paths.filter { selectedPlaylists.contains($0) }.count
-        if selectedCount == 0 {
-            return .unchecked
-        } else if selectedCount == paths.count {
-            return .checked
-        } else {
-            return .mixed
-        }
+        PlaylistSelector.checkState(for: node, prefix: prefix, selected: selectedPlaylists)
     }
 
     func allPlaylistPaths(node: PlaylistNode, prefix: String) -> Set<String> {
-        let path = prefix.isEmpty ? node.name : "\(prefix)/\(node.name)"
-        if node.isPlaylist {
-            return [path]
-        }
-        var result = Set<String>()
-        for child in node.children {
-            result.formUnion(allPlaylistPaths(node: child, prefix: path))
-        }
-        return result
+        PlaylistSelector.allPaths(node: node, prefix: prefix)
     }
 
     // MARK: - Volumes
@@ -134,12 +113,11 @@ final class USBSyncViewModel: ObservableObject {
 
         var trackKeys: [Int] = []
         for child in library.rootNode.children {
-            collectTrackKeys(node: child, prefix: "", selectedPaths: selectedPlaylists, into: &trackKeys)
+            PlaylistSelector.collectTrackKeys(from: child, prefix: "", selected: selectedPlaylists, into: &trackKeys)
         }
-        let seen = NSMutableSet()
+        var seen = Set<Int>()
         let tracks = trackKeys.compactMap { key -> Track? in
-            guard !seen.contains(key), let track = library.tracks[key] else { return nil }
-            seen.add(key)
+            guard seen.insert(key).inserted, let track = library.tracks[key] else { return nil }
             return track
         }
 
@@ -153,19 +131,6 @@ final class USBSyncViewModel: ObservableObject {
             statusMessage = msg
         } catch {
             errorMessage = "Plan failed: \(error.localizedDescription)"
-        }
-    }
-
-    private func collectTrackKeys(node: PlaylistNode, prefix: String, selectedPaths: Set<String>, into keys: inout [Int]) {
-        let path = prefix.isEmpty ? node.name : "\(prefix)/\(node.name)"
-        if node.isPlaylist {
-            if selectedPaths.contains(path) {
-                keys.append(contentsOf: node.trackKeys)
-            }
-        } else {
-            for child in node.children {
-                collectTrackKeys(node: child, prefix: path, selectedPaths: selectedPaths, into: &keys)
-            }
         }
     }
 

@@ -102,16 +102,15 @@ public enum RekordboxXMLWriter {
 
     private static func writePlaylistNode(_ node: PlaylistNode) -> XMLElement {
         let element = XMLElement(name: "NODE")
+        element.addAttribute(attr("Name", node.name))
 
         if node.isFolder {
             element.addAttribute(attr("Type", "0"))
-            element.addAttribute(attr("Name", node.name))
             element.addAttribute(attr("Count", String(node.children.count)))
             for child in node.children {
                 element.addChild(writePlaylistNode(child))
             }
         } else {
-            element.addAttribute(attr("Name", node.name))
             element.addAttribute(attr("Type", "1"))
             element.addAttribute(attr("KeyType", "0"))
             element.addAttribute(attr("Entries", String(node.trackKeys.count)))

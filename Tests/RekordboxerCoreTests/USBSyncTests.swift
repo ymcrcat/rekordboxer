@@ -86,6 +86,24 @@ final class USBSyncTests: XCTestCase {
         XCTAssertEqual(plan.filesToCopy[0].source.lastPathComponent, "house.mp3")
     }
 
+    func testFallbackToUsbRootWhenNoContentsDir() throws {
+        // When USB has no Contents/ subdirectory (non-rekordbox layout), plan() should
+        // search from usbRoot directly rather than crashing or returning empty results.
+        let flatUSB = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: flatUSB, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: flatUSB) }
+
+        let sourcePath = sourceDir.appendingPathComponent("flat.mp3")
+        FileManager.default.createFile(atPath: sourcePath.path, contents: Data("new audio".utf8))
+        FileManager.default.createFile(atPath: flatUSB.appendingPathComponent("flat.mp3").path, contents: Data("old".utf8))
+
+        let tracks = [makeTrack(path: sourcePath.path)]
+        let plan = try USBSync.plan(tracks: tracks, usbRoot: flatUSB)
+
+        XCTAssertEqual(plan.filesToCopy.count, 1)
+        XCTAssertEqual(plan.filesToCopy[0].destination.lastPathComponent, "flat.mp3")
+    }
+
     private func makeTrack(path: String) -> Track {
         var track = Track(trackID: 1)
         track.location = Track.encodeLocation(path)

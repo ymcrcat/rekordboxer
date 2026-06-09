@@ -15,14 +15,6 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         }
     }
 
-    var helpTitle: String {
-        switch self {
-        case .sync: return "Library Sync"
-        case .usb: return "USB Sync"
-        case .settings: return "Settings"
-        }
-    }
-
     var helpDescription: String {
         switch self {
         case .sync:
@@ -76,7 +68,7 @@ struct HelpPaneView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label(item.helpTitle, systemImage: "questionmark.circle")
+            Label(item.rawValue, systemImage: "questionmark.circle")
                 .font(.headline)
                 .foregroundStyle(.secondary)
 

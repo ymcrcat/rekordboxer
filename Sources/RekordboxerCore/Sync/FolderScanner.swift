@@ -31,7 +31,6 @@ public enum FolderScanner {
     /// Scan root directory and return its children as a list of ScannedFolder trees.
     /// Audio files directly in root are returned as a ScannedFolder named after the root.
     public static func scan(root: URL) throws -> [ScannedFolder] {
-        let fm = FileManager.default
         var results: [ScannedFolder] = []
 
         // Pick up audio files directly in root
@@ -40,15 +39,7 @@ public enum FolderScanner {
             results.append(ScannedFolder(folderName: root.lastPathComponent, folderURL: root, files: rootFiles, children: []))
         }
 
-        // Scan each subdirectory as a tree
-        let contents = try fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
-        let subdirs = contents.filter { url in
-            var isDir: ObjCBool = false
-            fm.fileExists(atPath: url.path, isDirectory: &isDir)
-            return isDir.boolValue
-        }.sorted { $0.lastPathComponent < $1.lastPathComponent }
-
-        for subdir in subdirs {
+        for subdir in try subdirectories(of: root) {
             if let folder = try scanFolderTree(at: subdir) {
                 results.append(folder)
             }
@@ -57,18 +48,21 @@ public enum FolderScanner {
         return results
     }
 
-    /// Recursively scan a directory into a ScannedFolder tree.
-    /// Returns nil if the folder and all its descendants contain no audio files.
-    private static func scanFolderTree(at directory: URL) throws -> ScannedFolder? {
+    private static func subdirectories(of directory: URL) throws -> [URL] {
         let fm = FileManager.default
-        let files = try scanAudioFilesFlat(in: directory)
-
         let contents = try fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
-        let subdirs = contents.filter { url in
+        return contents.filter { url in
             var isDir: ObjCBool = false
             fm.fileExists(atPath: url.path, isDirectory: &isDir)
             return isDir.boolValue
         }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    /// Recursively scan a directory into a ScannedFolder tree.
+    /// Returns nil if the folder and all its descendants contain no audio files.
+    private static func scanFolderTree(at directory: URL) throws -> ScannedFolder? {
+        let files = try scanAudioFilesFlat(in: directory)
+        let subdirs = try subdirectories(of: directory)
 
         var children: [ScannedFolder] = []
         for subdir in subdirs {
