@@ -95,25 +95,30 @@ final class SyncViewModel: ObservableObject {
         statusMessage = "Scanning..."
 
         let sourceURL = URL(fileURLWithPath: sourcePath)
+        let librarySnapshot = library
 
-        Task {
+        Task.detached(priority: .userInitiated) {
             do {
                 let folders = try FolderScanner.scan(root: sourceURL)
-                let result = SyncEngine.diff(library: library, scannedFolders: folders)
-                self.diff = result
-                self.scannedFolders = folders
-                if self.library.tracks.isEmpty {
-                    self.selectedFolders = Self.allFolderPaths(in: folders)
-                } else {
-                    let existingPaths = Set(self.library.tracks.values.map { $0.filePath })
-                    self.selectedFolders = Self.preselectFolders(in: folders, existingPaths: existingPaths)
+                let result = SyncEngine.diff(library: librarySnapshot, scannedFolders: folders)
+                await MainActor.run {
+                    let existingPaths = Set(librarySnapshot.tracks.values.map { $0.filePath })
+                    let selected = librarySnapshot.tracks.isEmpty
+                        ? SyncViewModel.allFolderPaths(in: folders)
+                        : SyncViewModel.preselectFolders(in: folders, existingPaths: existingPaths)
+                    self.diff = result
+                    self.scannedFolders = folders
+                    self.selectedFolders = selected
+                    self.removalSelections = Set(result.removedTracks.map { $0.trackID })
+                    self.statusMessage = "\(result.newTracks.count) new, \(result.removedTracks.count) removed, \(result.unchangedCount) unchanged"
+                    self.isScanning = false
                 }
-                self.removalSelections = Set(result.removedTracks.map { $0.trackID })
-                self.statusMessage = "\(result.newTracks.count) new, \(result.removedTracks.count) removed, \(result.unchangedCount) unchanged"
             } catch {
-                self.errorMessage = "Scan failed: \(error.localizedDescription)"
+                await MainActor.run {
+                    self.errorMessage = "Scan failed: \(error.localizedDescription)"
+                    self.isScanning = false
+                }
             }
-            self.isScanning = false
         }
     }
 
@@ -214,7 +219,7 @@ final class SyncViewModel: ObservableObject {
             }
 
             let data = try RekordboxXMLWriter.write(library: library)
-            try data.write(to: URL(fileURLWithPath: xmlPath))
+            try data.write(to: URL(fileURLWithPath: xmlPath), options: .atomic)
             try idMap.save(to: AppSettings.trackIDMapURL)
 
             // Create an empty diff to keep showing folder structure

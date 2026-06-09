@@ -8,10 +8,12 @@ public struct USBSyncPlan {
     }
 
     public let filesToCopy: [FileCopy]
+    public let skippedAmbiguous: [String]
     public let usbRoot: URL
 
-    public init(filesToCopy: [FileCopy], usbRoot: URL) {
+    public init(filesToCopy: [FileCopy], skippedAmbiguous: [String] = [], usbRoot: URL) {
         self.filesToCopy = filesToCopy
+        self.skippedAmbiguous = skippedAmbiguous
         self.usbRoot = usbRoot
     }
 }
@@ -20,11 +22,12 @@ public enum USBSync {
     public static func plan(tracks: [Track], usbRoot: URL) throws -> USBSyncPlan {
         let fm = FileManager.default
         var copies: [USBSyncPlan.FileCopy] = []
+        var skippedAmbiguous: [String] = []
 
         // Build an index of all files already on the USB so we can find
         // where rekordbox placed each track (typically Contents/Artist/Album/file)
         let contentsDir = usbRoot.appendingPathComponent("Contents")
-        let usbFileIndex: [String: URL]
+        let usbFileIndex: [String: [URL]]
         if fm.fileExists(atPath: contentsDir.path) {
             usbFileIndex = try buildFileIndex(root: contentsDir)
         } else {
@@ -39,7 +42,14 @@ public enum USBSync {
             guard fm.fileExists(atPath: sourcePath) else { continue }
 
             // Find existing file on USB by filename
-            guard let existingUSBPath = usbFileIndex[filename] else { continue }
+            guard let usbMatches = usbFileIndex[filename] else { continue }
+
+            // Skip ambiguous matches — two USB files with the same name would risk overwriting the wrong one
+            if usbMatches.count > 1 {
+                skippedAmbiguous.append(filename)
+                continue
+            }
+            let existingUSBPath = usbMatches[0]
 
             let sourceAttrs = try fm.attributesOfItem(atPath: sourcePath)
             let sourceSize = (sourceAttrs[.size] as? Int64) ?? 0
@@ -52,7 +62,7 @@ public enum USBSync {
             copies.append(USBSyncPlan.FileCopy(source: sourceURL, destination: existingUSBPath, filename: filename))
         }
 
-        return USBSyncPlan(filesToCopy: copies, usbRoot: usbRoot)
+        return USBSyncPlan(filesToCopy: copies, skippedAmbiguous: skippedAmbiguous, usbRoot: usbRoot)
     }
 
     public static func execute(plan: USBSyncPlan, progress: ((Int, Int, String) -> Void)? = nil) throws {
@@ -69,17 +79,18 @@ public enum USBSync {
         progress?(total, total, "")
     }
 
-    /// Build an index of filenames to their paths within a directory tree.
-    private static func buildFileIndex(root: URL) throws -> [String: URL] {
+    /// Build an index of filenames to all matching paths within a directory tree.
+    /// Multiple paths per filename are retained so callers can detect ambiguous matches.
+    private static func buildFileIndex(root: URL) throws -> [String: [URL]] {
         let fm = FileManager.default
-        var index: [String: URL] = [:]
+        var index: [String: [URL]] = [:]
         guard let enumerator = fm.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey]) else {
             return index
         }
         for case let fileURL as URL in enumerator {
             let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey])
             if values?.isRegularFile == true {
-                index[fileURL.lastPathComponent] = fileURL
+                index[fileURL.lastPathComponent, default: []].append(fileURL)
             }
         }
         return index

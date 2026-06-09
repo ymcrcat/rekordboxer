@@ -146,7 +146,11 @@ final class USBSyncViewModel: ObservableObject {
         do {
             let result = try USBSync.plan(tracks: tracks, usbRoot: volume)
             self.plan = result
-            statusMessage = "\(result.filesToCopy.count) files to copy"
+            var msg = "\(result.filesToCopy.count) files to copy"
+            if !result.skippedAmbiguous.isEmpty {
+                msg += " (\(result.skippedAmbiguous.count) skipped — ambiguous filename)"
+            }
+            statusMessage = msg
         } catch {
             errorMessage = "Plan failed: \(error.localizedDescription)"
         }

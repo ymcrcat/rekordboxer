@@ -38,6 +38,6 @@ public struct TrackIDMap: Codable {
 
     public func save(to url: URL) throws {
         let data = try JSONEncoder().encode(self)
-        try data.write(to: url)
+        try data.write(to: url, options: .atomic)
     }
 }

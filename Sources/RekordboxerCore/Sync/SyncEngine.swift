@@ -48,6 +48,12 @@ public enum SyncEngine {
         )
     }
 
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
     public static func apply(diff: SyncDiff, to library: inout RekordboxLibrary, idMap: inout TrackIDMap, removals: Set<Int>) {
         for trackID in removals {
             if let track = library.tracks[trackID] {
@@ -64,9 +70,7 @@ public enum SyncEngine {
             track.location = Track.encodeLocation(path)
             track.size = file.size
             track.kind = audioKind(for: file.url.pathExtension)
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy-MM-dd"
-            track.dateAdded = formatter.string(from: Date())
+            track.dateAdded = dateFormatter.string(from: Date())
             library.tracks[trackID] = track
         }
 

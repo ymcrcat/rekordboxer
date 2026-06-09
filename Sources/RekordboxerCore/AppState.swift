@@ -15,7 +15,7 @@ public struct AppSettings: Codable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .prettyPrinted
         let data = try encoder.encode(self)
-        try data.write(to: url)
+        try data.write(to: url, options: .atomic)
     }
 
     public static var defaultURL: URL {
