@@ -39,7 +39,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
             return """
             Update playlist files on a USB drive for use with CDJs.
 
-            Browse your Rekordbox playlists and select which ones to check against a connected USB drive. Files already on the USB whose size differs from your library copy are updated in place. New tracks are not added — export those through rekordbox first.
+            Browse your Rekordbox playlists and select which ones to check against a connected USB drive. Files already on the USB that differ from your library copy (by size or modification time) are updated in place. New tracks are not added — export those through rekordbox first.
 
             • Select a USB volume from the dropdown
             • Check the playlists you want to sync
