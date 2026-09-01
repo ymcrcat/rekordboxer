@@ -47,15 +47,15 @@ struct USBSyncView: View {
                 }
 
                 if let plan = viewModel.plan {
-                    Section("Files with different sizes (\(plan.filesToCopy.count))") {
-                        ForEach(plan.filesToCopy, id: \.filename) { file in
+                    Section("Files to update (\(plan.filesToCopy.count))") {
+                        ForEach(plan.filesToCopy, id: \.destination) { file in
                             Toggle(isOn: Binding(
-                                get: { viewModel.copySelections.contains(file.filename) },
+                                get: { viewModel.copySelections.contains(file.destination.path) },
                                 set: { selected in
                                     if selected {
-                                        viewModel.copySelections.insert(file.filename)
+                                        viewModel.copySelections.insert(file.destination.path)
                                     } else {
-                                        viewModel.copySelections.remove(file.filename)
+                                        viewModel.copySelections.remove(file.destination.path)
                                     }
                                 }
                             )) {
@@ -90,6 +90,7 @@ struct USBSyncView: View {
             } label: {
                 Label("Plan", systemImage: "list.bullet.clipboard")
             }
+            .disabled(viewModel.isPlanning)
 
             if viewModel.plan != nil {
                 Button {

@@ -4,7 +4,16 @@ import RekordboxerCore
 @MainActor
 final class USBSyncViewModel: ObservableObject {
     @Published var mountedVolumes: [URL] = []
-    @Published var selectedVolume: URL?
+    @Published var selectedVolume: URL? {
+        didSet {
+            // A plan's destinations are volume-specific — invalidate on change
+            if oldValue != selectedVolume {
+                plan = nil
+                copySelections = []
+            }
+        }
+    }
+    @Published var isPlanning: Bool = false
     @Published var selectedPlaylists: Set<String> = []
     @Published var playlistNodes: [PlaylistNode] = []
     @Published var plan: USBSyncPlan?
@@ -86,8 +95,10 @@ final class USBSyncViewModel: ObservableObject {
                 let isInternal = values.volumeIsInternal ?? true
                 return isRemovable || !isInternal
             }.sorted { $0.lastPathComponent < $1.lastPathComponent }
-            if selectedVolume == nil, let first = mountedVolumes.first {
-                selectedVolume = first
+            // No auto-select: overwriting files on a guessed volume (e.g. a
+            // backup drive) is worse than one extra click
+            if let selected = selectedVolume, !mountedVolumes.contains(selected) {
+                selectedVolume = nil
             }
         } catch {
             errorMessage = "Failed to list volumes: \(error.localizedDescription)"
@@ -97,6 +108,7 @@ final class USBSyncViewModel: ObservableObject {
     // MARK: - Plan & Sync
 
     func planSync() {
+        guard !isPlanning else { return }
         errorMessage = nil
         plan = nil
         copySelections = []
@@ -121,22 +133,43 @@ final class USBSyncViewModel: ObservableObject {
             return track
         }
 
-        do {
-            let result = try USBSync.plan(tracks: tracks, usbRoot: volume)
-            self.plan = result
-            var msg = "\(result.filesToCopy.count) files to copy"
-            if !result.skippedAmbiguous.isEmpty {
-                msg += " (\(result.skippedAmbiguous.count) skipped — ambiguous filename)"
+        // USB enumeration can be slow on large sticks — keep it off the main actor
+        statusMessage = "Scanning USB..."
+        isPlanning = true
+        let allTracks = Array(library.tracks.values)
+        Task.detached(priority: .userInitiated) { [tracks] in
+            do {
+                let result = try USBSync.plan(tracks: tracks, allTracks: allTracks, usbRoot: volume)
+                await MainActor.run {
+                    self.isPlanning = false
+                    // The user may have switched volumes mid-plan — a stale
+                    // plan's destinations point at the wrong drive
+                    guard self.selectedVolume == volume else { return }
+                    self.plan = result
+                    var msg = "\(result.filesToCopy.count) files to copy"
+                    if !result.skippedAmbiguous.isEmpty {
+                        msg += ", \(result.skippedAmbiguous.count) skipped (ambiguous filename)"
+                    }
+                    if !result.notOnUSB.isEmpty {
+                        msg += ", \(result.notOnUSB.count) not on USB"
+                    }
+                    if !result.sourceMissing.isEmpty {
+                        msg += ", \(result.sourceMissing.count) source file missing"
+                    }
+                    self.statusMessage = msg
+                }
+            } catch {
+                await MainActor.run {
+                    self.isPlanning = false
+                    self.errorMessage = "Plan failed: \(error.localizedDescription)"
+                }
             }
-            statusMessage = msg
-        } catch {
-            errorMessage = "Plan failed: \(error.localizedDescription)"
         }
     }
 
     func executeSync() {
         guard let plan = plan else { return }
-        let selectedFiles = plan.filesToCopy.filter { copySelections.contains($0.filename) }
+        let selectedFiles = plan.filesToCopy.filter { copySelections.contains($0.destination.path) }
         guard !selectedFiles.isEmpty else {
             errorMessage = "No files selected to copy."
             return

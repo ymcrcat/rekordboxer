@@ -9,12 +9,16 @@ final class SyncViewModel: ObservableObject {
     @Published var statusMessage: String = ""
     @Published var errorMessage: String?
     @Published var isScanning: Bool = false
+    @Published var isWritingXML: Bool = false
     @Published var selectedFolders: Set<String> = []
     @Published var scannedFolders: [ScannedFolder] = []
     @Published var syncSuccess: Bool = false
 
     private var settings = AppSettings()
     private var idMap = TrackIDMap()
+    /// mtime of the XML when it was last loaded — used to detect edits made
+    /// by rekordbox (or anything else) between scan and sync
+    private var xmlLoadedModificationDate: Date?
 
     func loadOnAppear() {
         do {
@@ -29,38 +33,46 @@ final class SyncViewModel: ObservableObject {
             idMap = TrackIDMap()
         }
 
-        loadLibrary()
+        guard loadLibrary() else { return }
+        idMap.seed(from: library.tracks)
 
         if !settings.sourceFolderPath.isEmpty {
             scan()
         }
     }
 
-    private func loadLibrary() {
+    /// Returns false when an existing XML file could not be read or parsed —
+    /// proceeding would overwrite the user's library with an empty one.
+    private func loadLibrary() -> Bool {
         let xmlPath = settings.xmlFilePath
         guard !xmlPath.isEmpty else {
             statusMessage = "No XML file configured. Go to Settings to set the path."
-            return
+            return true
         }
 
         let url = URL(fileURLWithPath: xmlPath)
         guard FileManager.default.fileExists(atPath: xmlPath) else {
             statusMessage = "XML file not found. Scan to create it."
             library = RekordboxLibrary()
-            return
+            xmlLoadedModificationDate = nil
+            return true
         }
 
         do {
             let data = try Data(contentsOf: url)
             library = try RekordboxXMLParser.parse(data: data)
+            xmlLoadedModificationDate = LibraryBackup.modificationDate(of: xmlPath)
             statusMessage = "Library loaded: \(library.tracks.count) tracks"
+            return true
         } catch {
-            errorMessage = "Failed to load XML: \(error.localizedDescription)"
+            errorMessage = "Failed to load XML — fix or remove the file before syncing: \(error.localizedDescription)"
             library = RekordboxLibrary()
+            return false
         }
     }
 
     func scan() {
+        guard !isWritingXML else { return }
         errorMessage = nil
         diff = nil
         removalSelections = []
@@ -79,7 +91,8 @@ final class SyncViewModel: ObservableObject {
         } catch {
             idMap = TrackIDMap()
         }
-        loadLibrary()
+        guard loadLibrary() else { return }
+        idMap.seed(from: library.tracks)
 
         let sourcePath = settings.sourceFolderPath
         guard !sourcePath.isEmpty else {
@@ -99,14 +112,15 @@ final class SyncViewModel: ObservableObject {
                 let result = SyncEngine.diff(library: librarySnapshot, scannedFolders: folders)
                 await MainActor.run {
                     let existingPaths = Set(librarySnapshot.tracks.values.map { $0.filePath })
-                    let newTrackPaths = Set(result.newTracks.map { $0.url.path })
+                    let newTrackPaths = Set(result.newTracks.map { $0.path })
                     let selected = librarySnapshot.tracks.isEmpty
-                        ? SyncViewModel.allFolderPaths(in: folders)
-                        : SyncViewModel.preselectFolders(in: folders, existingPaths: existingPaths.union(newTrackPaths))
+                        ? FolderSelection.allPaths(in: folders)
+                        : FolderSelection.preselect(in: folders, existingPaths: existingPaths.union(newTrackPaths))
                     self.diff = result
                     self.scannedFolders = folders
                     self.selectedFolders = selected
-                    self.removalSelections = Set(result.removedTracks.map { $0.trackID })
+                    // Deletion requires an explicit check — never pre-checked
+                    self.removalSelections = []
                     self.statusMessage = "\(result.newTracks.count) new, \(result.removedTracks.count) removed, \(result.unchangedCount) unchanged"
                     self.isScanning = false
                 }
@@ -122,7 +136,7 @@ final class SyncViewModel: ObservableObject {
     // MARK: - Folder Selection
 
     func toggleFolder(_ folder: ScannedFolder) {
-        let paths = Self.allFolderPaths(in: [folder])
+        let paths = FolderSelection.allPaths(in: [folder])
         if folderCheckState(folder) == .checked {
             selectedFolders.subtract(paths)
         } else {
@@ -135,140 +149,119 @@ final class SyncViewModel: ObservableObject {
     }
 
     func folderCheckState(_ folder: ScannedFolder) -> CheckState {
-        let allPaths = Self.allFolderPaths(in: [folder])
-        let selectedCount = allPaths.filter { selectedFolders.contains($0) }.count
-        if selectedCount == 0 {
-            return .unchecked
-        } else if selectedCount == allPaths.count {
-            return .checked
-        } else {
-            return .mixed
-        }
-    }
-
-    static func allFolderPaths(in folders: [ScannedFolder]) -> Set<String> {
-        var result = Set<String>()
-        for folder in folders {
-            result.insert(folder.folderURL.path)
-            result.formUnion(allFolderPaths(in: folder.children))
-        }
-        return result
-    }
-
-    /// Pre-select only folders that have at least one file already in the library.
-    /// Pure container folders (no direct files) are selected if all their children are selected.
-    static func preselectFolders(in folders: [ScannedFolder], existingPaths: Set<String>) -> Set<String> {
-        var result = Set<String>()
-        for folder in folders {
-            let childResults = preselectFolders(in: folder.children, existingPaths: existingPaths)
-            result.formUnion(childResults)
-
-            if !folder.files.isEmpty {
-                // Has direct files: select if any file is already in the library
-                if folder.files.contains(where: { existingPaths.contains($0.url.path) }) {
-                    result.insert(folder.folderURL.path)
-                }
-            } else if !folder.children.isEmpty {
-                // Pure container: select if all children are selected
-                if folder.children.allSatisfy({ childResults.contains($0.folderURL.path) }) {
-                    result.insert(folder.folderURL.path)
-                }
-            }
-        }
-        return result
+        FolderSelection.checkState(for: folder, selected: selectedFolders)
     }
 
     // MARK: - Filtered Sync
 
     func syncToXML() {
+        guard !isWritingXML else { return }
         guard let diff = diff else {
             errorMessage = "No scan results. Run Scan first."
             return
         }
         errorMessage = nil
+        syncSuccess = false
 
-        do {
-            let filteredFolders = Self.filterFolders(scannedFolders, selectedPaths: selectedFolders)
-            let filteredFiles = filteredFolders.flatMap { $0.allFiles }
-            let filteredFilePaths = Set(filteredFiles.map { $0.url.path })
-            let filteredNewTracks = diff.newTracks.filter { filteredFilePaths.contains($0.url.path) }
+        let xmlPath = settings.xmlFilePath
+        guard !xmlPath.isEmpty else {
+            errorMessage = "No XML file path configured."
+            return
+        }
 
-            // Remove existing tracks that belong to unselected folders
-            let allScannedPaths = Set(scannedFolders.flatMap { $0.allFiles }.map { $0.url.path })
-            let excludedPaths = allScannedPaths.subtracting(filteredFilePaths)
-            var removals = removalSelections
-            for (trackID, track) in library.tracks {
-                if excludedPaths.contains(track.filePath) {
-                    removals.insert(trackID)
+        // Refuse to overwrite edits made to the XML since the last scan
+        let currentDate = LibraryBackup.modificationDate(of: xmlPath)
+        if let stale = LibraryBackup.staleness(loaded: xmlLoadedModificationDate, current: currentDate) {
+            errorMessage = stale.message
+            return
+        }
+
+        let filteredFolders = FolderSelection.filter(scannedFolders, selectedPaths: selectedFolders)
+        let filteredFiles = filteredFolders.flatMap { $0.allFiles }
+        let filteredFilePaths = Set(filteredFiles.map { $0.path })
+        let filteredNewTracks = diff.newTracks.filter { filteredFilePaths.contains($0.path) }
+
+        // Remove existing tracks that belong to unselected folders
+        let removals = FolderSelection.removals(
+            userSelected: removalSelections,
+            library: library,
+            allScannedPaths: Set(scannedFolders.flatMap { $0.allFiles }.map { $0.path }),
+            selectedPaths: filteredFilePaths
+        )
+
+        let filteredDiff = SyncDiff(
+            newTracks: filteredNewTracks,
+            removedTracks: diff.removedTracks,
+            unchangedCount: diff.unchangedCount,
+            scannedFolders: filteredFolders
+        )
+
+        SyncEngine.apply(diff: filteredDiff, to: &library, idMap: &idMap, removals: removals)
+
+        // Serialization and disk writes happen off the main actor so a large
+        // library can't freeze the UI
+        let librarySnapshot = library
+        let idMapSnapshot = idMap
+        let trackCount = library.tracks.count
+        let expectedDate = xmlLoadedModificationDate
+        statusMessage = "Writing XML..."
+        isWritingXML = true
+
+        Task.detached(priority: .userInitiated) {
+            let fm = FileManager.default
+
+            // Re-check right before writing — the main-actor check above races
+            // with this detached write
+            let diskDate = LibraryBackup.modificationDate(of: xmlPath)
+            if LibraryBackup.staleness(loaded: expectedDate, current: diskDate) != nil {
+                await MainActor.run {
+                    self.errorMessage = "XML file changed on disk during sync. Refresh and try again."
+                    self.statusMessage = ""
+                    self.isWritingXML = false
                 }
-            }
-
-            let filteredDiff = SyncDiff(
-                newTracks: filteredNewTracks,
-                removedTracks: diff.removedTracks,
-                unchangedCount: diff.unchangedCount,
-                scannedFolders: filteredFolders
-            )
-
-            SyncEngine.apply(diff: filteredDiff, to: &library, idMap: &idMap, removals: removals)
-
-            let xmlPath = settings.xmlFilePath
-            guard !xmlPath.isEmpty else {
-                errorMessage = "No XML file path configured."
                 return
             }
 
-            let data = try RekordboxXMLWriter.write(library: library)
-            try data.write(to: URL(fileURLWithPath: xmlPath), options: .atomic)
-            try idMap.save(to: AppSettings.trackIDMapURL)
+            do {
+                let data = try RekordboxXMLWriter.write(library: librarySnapshot)
 
-            // Create an empty diff to keep showing folder structure
-            self.diff = SyncDiff(
-                newTracks: [],
-                removedTracks: [],
-                unchangedCount: library.tracks.count,
-                scannedFolders: scannedFolders
-            )
-            self.removalSelections = []
-            self.syncSuccess = true
-            statusMessage = "Synced! Library now has \(library.tracks.count) tracks."
-        } catch {
-            errorMessage = "Sync failed: \(error.localizedDescription)"
-        }
-    }
+                // Back up the existing XML before overwriting it
+                try LibraryBackup.backup(xmlPath: xmlPath)
 
-    /// Recursively prune the folder tree to only include selected folders.
-    static func filterFolders(_ folders: [ScannedFolder], selectedPaths: Set<String>) -> [ScannedFolder] {
-        folders.compactMap { folder -> ScannedFolder? in
-            let isSelected = selectedPaths.contains(folder.folderURL.path)
-            let filteredChildren = filterFolders(folder.children, selectedPaths: selectedPaths)
+                // idMap first: it's recoverable via seeding, the XML is not
+                try idMapSnapshot.save(to: AppSettings.trackIDMapURL)
+                try data.write(to: URL(fileURLWithPath: xmlPath), options: .atomic)
+                let newDate = LibraryBackup.modificationDate(of: xmlPath)
 
-            if isSelected {
-                return ScannedFolder(
-                    folderName: folder.folderName,
-                    folderURL: folder.folderURL,
-                    files: folder.files,
-                    children: filteredChildren
-                )
-            } else if !filteredChildren.isEmpty {
-                // Parent not selected but some descendants are — keep as container with no direct files
-                return ScannedFolder(
-                    folderName: folder.folderName,
-                    folderURL: folder.folderURL,
-                    files: [],
-                    children: filteredChildren
-                )
-            } else {
-                return nil
+                await MainActor.run {
+                    self.xmlLoadedModificationDate = newDate
+                    // Create an empty diff to keep showing folder structure
+                    self.diff = SyncDiff(
+                        newTracks: [],
+                        removedTracks: [],
+                        unchangedCount: trackCount,
+                        scannedFolders: self.scannedFolders
+                    )
+                    self.removalSelections = []
+                    self.syncSuccess = true
+                    self.statusMessage = "Synced! Library now has \(trackCount) tracks."
+                    self.isWritingXML = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.errorMessage = "Sync failed: \(error.localizedDescription)"
+                    self.statusMessage = "Sync failed. Refresh to reload the library."
+                    self.isWritingXML = false
+                }
             }
         }
     }
 
     var selectedNewTrackCount: Int {
         guard diff != nil else { return 0 }
-        let filteredFolders = Self.filterFolders(scannedFolders, selectedPaths: selectedFolders)
-        let filteredFilePaths = Set(filteredFolders.flatMap { $0.allFiles }.map { $0.url.path })
-        return diff!.newTracks.filter { filteredFilePaths.contains($0.url.path) }.count
+        let filteredFolders = FolderSelection.filter(scannedFolders, selectedPaths: selectedFolders)
+        let filteredFilePaths = Set(filteredFolders.flatMap { $0.allFiles }.map { $0.path })
+        return diff!.newTracks.filter { filteredFilePaths.contains($0.path) }.count
     }
 
     var selectedFolderCount: Int {

@@ -27,7 +27,7 @@ public enum SyncEngine {
         var newFiles: [ScannedFile] = []
 
         for file in allFiles {
-            let path = file.url.path
+            let path = file.path
             scannedPaths.insert(path)
             if !existingPaths.contains(path) {
                 newFiles.append(file)
@@ -50,6 +50,7 @@ public enum SyncEngine {
 
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd"
         return f
     }()
@@ -63,7 +64,7 @@ public enum SyncEngine {
         }
 
         for file in diff.newTracks {
-            let path = file.url.path
+            let path = file.path
             let trackID = idMap.getOrAssign(path: path)
             var track = Track(trackID: trackID)
             track.name = file.url.deletingPathExtension().lastPathComponent
@@ -87,7 +88,7 @@ public enum SyncEngine {
     /// - Folders with both get a playlist for their files plus child folders
     private static func buildPlaylistNode(from folder: ScannedFolder, idMap: TrackIDMap) -> PlaylistNode? {
         let directTrackKeys = folder.files.compactMap { file -> Int? in
-            idMap.trackID(for: file.url.path)
+            idMap.trackID(for: file.path)
         }
 
         let childNodes = folder.children.compactMap { child in

@@ -31,6 +31,23 @@ public struct TrackIDMap: Codable {
         pathToID.removeValue(forKey: path)
     }
 
+    /// Reconcile the map with a loaded library: every existing track keeps its
+    /// XML trackID, and nextID moves past the highest ID so new tracks can
+    /// never collide with (and silently overwrite) existing ones.
+    public mutating func seed(from tracks: [Int: Track]) {
+        for (id, track) in tracks {
+            assign(path: track.filePath, trackID: id)
+        }
+        // Purge stale entries claiming an ID the library assigns to a different
+        // path — getOrAssign would hand that ID out again and overwrite the
+        // library's track
+        for (path, id) in pathToID {
+            if let track = tracks[id], track.filePath != path {
+                pathToID.removeValue(forKey: path)
+            }
+        }
+    }
+
     public static func load(from url: URL) throws -> TrackIDMap {
         let data = try Data(contentsOf: url)
         return try JSONDecoder().decode(TrackIDMap.self, from: data)

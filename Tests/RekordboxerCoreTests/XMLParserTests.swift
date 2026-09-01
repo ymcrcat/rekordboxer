@@ -61,6 +61,49 @@ final class XMLParserTests: XCTestCase {
         XCTAssertEqual(loop.end, 116.520)
     }
 
+    func testExternalEntitiesAreNotResolved() throws {
+        // XXE hardening: an external entity must never leak file contents
+        let secretFile = FileManager.default.temporaryDirectory.appendingPathComponent("xxe-\(UUID().uuidString).txt")
+        try Data("SECRET-CONTENT".utf8).write(to: secretFile)
+        defer { try? FileManager.default.removeItem(at: secretFile) }
+
+        let xml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE DJ_PLAYLISTS [<!ENTITY xxe SYSTEM "file://\(secretFile.path)">]>
+        <DJ_PLAYLISTS Version="1.0.0">
+          <COLLECTION Entries="1">
+            <TRACK TrackID="1" Name="&xxe;"/>
+          </COLLECTION>
+        </DJ_PLAYLISTS>
+        """
+        // Either the parse fails outright or the entity stays unresolved —
+        // the secret must never appear in parsed data
+        if let library = try? RekordboxXMLParser.parse(data: Data(xml.utf8)) {
+            let name = library.tracks[1]?.name ?? ""
+            XCTAssertFalse(name.contains("SECRET-CONTENT"))
+        }
+    }
+
+    func testLocationKeyedPlaylistResolvesToTrackIDs() throws {
+        let xml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <DJ_PLAYLISTS Version="1.0.0">
+          <COLLECTION Entries="1">
+            <TRACK TrackID="42" Name="T" Location="file://localhost/Users/dj/t.mp3"/>
+          </COLLECTION>
+          <PLAYLISTS>
+            <NODE Type="0" Name="ROOT" Count="1">
+              <NODE Type="1" Name="ByLocation" KeyType="1" Entries="1">
+                <TRACK Key="file://localhost/Users/dj/t.mp3"/>
+              </NODE>
+            </NODE>
+          </PLAYLISTS>
+        </DJ_PLAYLISTS>
+        """
+        let lib = try RekordboxXMLParser.parse(data: Data(xml.utf8))
+        XCTAssertEqual(lib.rootNode.children[0].trackKeys, [42])
+    }
+
     func testPlaylistStructure() {
         let root = library.rootNode
         XCTAssertTrue(root.isFolder)

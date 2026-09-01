@@ -26,7 +26,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
             • New tracks in your source folder that aren't in Rekordbox yet
             • Tracks that have been removed from your source folder but still exist in the XML
 
-            Select the tracks you want to add, then click "Export to XML" to update your Rekordbox library file. Import the updated XML in Rekordbox to complete the sync.
+            Select the tracks you want to add, then click "Sync to XML" to update your Rekordbox library file. Import the updated XML in Rekordbox to complete the sync.
 
             To enable XML in Rekordbox:
             1. Open Rekordbox Preferences (⌘,)
@@ -37,13 +37,13 @@ enum SidebarItem: String, CaseIterable, Identifiable {
             """
         case .usb:
             return """
-            Copy playlists to a USB drive for use with CDJs.
+            Update playlist files on a USB drive for use with CDJs.
 
-            Browse your Rekordbox playlists and select which ones to sync to a connected USB drive. The files will be copied with their folder structure preserved.
+            Browse your Rekordbox playlists and select which ones to check against a connected USB drive. Files already on the USB that differ from your library copy (by size or modification time) are updated in place. New tracks are not added — export those through rekordbox first.
 
             • Select a USB volume from the dropdown
-            • Check the playlists you want to export
-            • Click "Sync to USB" to copy the audio files
+            • Check the playlists you want to sync
+            • Click "Plan" to find changed files, then "Copy to USB" to update them
 
             This is useful for preparing USB drives for DJ performances without using Rekordbox's export feature.
             """

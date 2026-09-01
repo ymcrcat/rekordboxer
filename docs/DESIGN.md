@@ -17,6 +17,7 @@ Sources/
       SyncEngine.swift        # Diff calculation and library updates
       TrackIDMap.swift         # Stable track ID assignment across syncs
       USBSync.swift            # Incremental USB file synchronization
+    PlaylistSelector.swift    # Tri-state checkbox selection logic
     AppState.swift            # Settings persistence (JSON)
   Rekordboxer/                # SwiftUI application
     RekordboxerApp.swift      # App entry point
@@ -29,19 +30,20 @@ Sources/
       SyncViewModel.swift     # Library sync state and logic
       USBSyncViewModel.swift  # USB sync state and logic
 Tests/
-  RekordboxerCoreTests/       # 37 tests covering all core logic
+  RekordboxerCoreTests/       # 103 tests covering all core logic
 Resources/
   AppIcon.svg                 # Source artwork
   AppIcon.icns                # Compiled macOS icon
 scripts/
-  bundle.sh                   # Build and package .app bundle
+  bundle.sh                   # Build and package .app bundle (version from VERSION file, ad-hoc signed)
+  dmg.sh                      # Package the .app into a distributable DMG
 ```
 
 ## Data Models
 
 **`RekordboxLibrary`** holds the full library state: a dictionary of `Track` objects keyed by track ID, and a `PlaylistNode` tree representing the folder/playlist hierarchy.
 
-**`Track`** stores all rekordbox metadata: name, artist, album, genre, BPM, key, rating, cue points (`PositionMark`), beatgrid (`Tempo`), and a `rawAttributes` dictionary that preserves any XML attributes rekordbox writes that Rekordboxer doesn't explicitly model. This means analysis data, waveform info, and future rekordbox fields survive round-trips through Rekordboxer.
+**`Track`** stores all rekordbox metadata: name, artist, album, genre, BPM, key, rating, cue points (`PositionMark`), beatgrid (`Tempo`), and a `rawAttributes` dictionary that preserves any XML attributes rekordbox writes that Rekordboxer doesn't explicitly model. Tracks parsed from an existing XML also keep `rawChildrenXML` — the verbatim XML of their child elements — so the values and formatting of cue points, beatgrids, and unknown fields are preserved on write. This means analysis data, waveform info, and future rekordbox fields survive round-trips through Rekordboxer.
 
 **`PlaylistNode`** is a recursive tree where each node is either a folder (contains children) or a playlist (contains track IDs). This maps directly to rekordbox's `NODE` XML elements.
 
@@ -51,7 +53,7 @@ scripts/
 
 The sync flow has four stages:
 
-1. **Scan** (`FolderScanner.scan`): Walks the source folder recursively, collecting audio files (mp3, wav, flac, aiff, aac, m4a, ogg, alac) into a `ScannedFolder` tree. Empty folders are omitted.
+1. **Scan** (`FolderScanner.scan`): Walks the source folder recursively, collecting audio files (mp3, wav, flac, aiff, aac, m4a, ogg, alac) into a `ScannedFolder` tree. Empty folders are omitted. Hidden files (including FAT32 `._` metadata), symlinked folders, and non-regular files are excluded, and paths are Unicode-normalized so accented filenames match consistently across filesystems.
 
 2. **Diff** (`SyncEngine.diff`): Compares the scanned files against the existing library. Produces a `SyncDiff` containing new tracks (files not in library), removed tracks (library tracks not on disk), and an unchanged count.
 
@@ -59,7 +61,7 @@ The sync flow has four stages:
 
 4. **Apply** (`SyncEngine.apply`): Removes confirmed tracks, adds new tracks from selected folders, and rebuilds the playlist tree. Each subfolder becomes a playlist. When a folder has both direct files and subfolders, the direct files get a playlist named after the folder (prefixed with `_` if a subfolder has the same name to avoid collisions). Track IDs are assigned via `TrackIDMap` which persists the mapping to disk, ensuring tracks keep stable IDs across syncs.
 
-The XML is then written by `RekordboxXMLWriter`, which reconstructs the full rekordbox XML format including the `DJ_PLAYLISTS` root, `PRODUCT` info, `COLLECTION` of tracks, and `PLAYLISTS` tree.
+The XML is then written by `RekordboxXMLWriter`, which reconstructs the full rekordbox XML format including the `DJ_PLAYLISTS` root, `PRODUCT` info, `COLLECTION` of tracks, and `PLAYLISTS` tree. Before writing, the app makes a timestamped backup of the existing XML (the newest five are kept) and refuses to overwrite a file whose modification date changed since it was loaded — protecting edits made by rekordbox between scan and sync. An XML that fails to read or parse blocks syncing rather than being treated as an empty library.
 
 ### Folder Selection
 
@@ -85,9 +87,9 @@ The folder tree maps to rekordbox playlists as follows:
 
 USB sync assumes rekordbox has already exported tracks to a USB stick. Rekordboxer's job is to update files that have changed on disk (e.g. re-encoded or re-tagged files in a Dropbox folder) without re-exporting through rekordbox, which would lose cue points and analysis data.
 
-1. **Plan** (`USBSync.plan`): Indexes all files on the USB stick by filename. For each track in the selected playlists, finds the matching file on USB. Compares file size and modification date against a manifest (`.rekordboxer_manifest.json` stored on the USB root). Files that differ are queued for copy; unchanged files are skipped; files not on USB are ignored (they need to be exported from rekordbox first).
+1. **Plan** (`USBSync.plan`): Indexes all files on the USB stick by filename. For each track in the selected playlists, finds the matching file on USB. Compares each source file's size and modification date directly against the copy on the USB — no state is stored on the stick — so a same-size edit is still caught by its newer modification time. Files that differ are queued for copy; unchanged files are skipped. The plan also reports what it could not sync: tracks whose filename appears more than once in the library are skipped as ambiguous (copying would risk overwriting the wrong USB file), files not on USB are listed as needing a rekordbox export first, and files missing at the source are flagged.
 
-2. **Execute** (`USBSync.execute`): Copies each changed file from source to its existing location on USB, preserving rekordbox's directory structure (`Contents/Artist/Album/`). Updates the manifest for next sync.
+2. **Execute** (`USBSync.execute`): Copies each changed file from source to its existing location on USB, preserving rekordbox's directory structure (`Contents/Artist/Album/`). Each file is copied to a temporary file on the USB and then swapped into place, so a failed or interrupted copy never destroys the only copy of a track on the stick.
 
 ## Settings
 
@@ -99,11 +101,20 @@ USB sync assumes rekordbox has already exported tracks to a USB stick. Rekordbox
 
 ## Tests
 
-The test suite (37 tests) covers:
+Pure logic lives in `RekordboxerCore` so it is reachable from tests; the app
+target holds only SwiftUI wiring (`@Published` state, button enablement) and
+has no automated coverage. Backup, staleness, and folder-selection logic were
+moved out of the view models for exactly this reason.
+
+The test suite (103 tests) covers:
 
 - **Model tests**: Rating conversion, position mark types, location encoding, playlist node types
-- **XML round-trip tests**: Parse fixture XML, write it back, verify all data preserved
-- **Folder scanner tests**: Audio file detection, non-audio filtering, nested scanning, metadata capture
-- **Sync engine tests**: New/removed/unchanged detection, selective removal, nested playlist building, name collision handling, track ID stability
-- **USB sync tests**: Skip-unchanged logic, change detection, in-place overwrite, selective playlist sync
+- **XML round-trip tests**: Parse fixture XML, write it back, verify all data preserved (verbatim attribute and child preservation for parsed tracks), external-entity hardening
+- **Folder scanner tests**: Audio file detection, non-audio filtering, nested scanning, metadata capture, hidden-file and symlink exclusion
+- **Sync engine tests**: New/removed/unchanged detection, selective removal, nested playlist building, name collision handling, track ID stability, Unicode path normalization
+- **Playlist selector tests**: Tri-state check-state computation, toggle propagation, preselection from an existing library
+- **USB sync tests**: Skip-unchanged logic, change detection, safe temp-file copy, ambiguous-filename skipping, selective playlist sync
+- **Library backup tests**: Backup-aside before overwrite, same-second collision handling, pruning to the newest five, hand-made `.bak` files left alone, staleness decisions (changed / appeared / unreadable)
+- **Folder selection tests**: Tri-state check state, preselection from an existing library, tree pruning that preserves hierarchy, removal-set computation (deselected folders plus explicit checks, sparing tracks outside the scanned root)
+- **App state tests**: Settings persistence round-trip
 - **Integration tests**: Full end-to-end workflow (scan → diff → apply → write → re-read → re-scan)
