@@ -52,7 +52,7 @@ struct SyncView: View {
             } label: {
                 Label("Refresh", systemImage: "arrow.clockwise")
             }
-            .disabled(viewModel.isScanning)
+            .disabled(viewModel.isScanning || viewModel.isWritingXML)
 
             if viewModel.diff != nil {
                 Button {
@@ -60,6 +60,7 @@ struct SyncView: View {
                 } label: {
                     Label("Sync to XML", systemImage: "arrow.down.doc")
                 }
+                .disabled(viewModel.isWritingXML)
             }
         }
         .padding()

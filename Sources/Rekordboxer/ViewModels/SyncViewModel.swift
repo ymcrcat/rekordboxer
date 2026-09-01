@@ -9,12 +9,16 @@ final class SyncViewModel: ObservableObject {
     @Published var statusMessage: String = ""
     @Published var errorMessage: String?
     @Published var isScanning: Bool = false
+    @Published var isWritingXML: Bool = false
     @Published var selectedFolders: Set<String> = []
     @Published var scannedFolders: [ScannedFolder] = []
     @Published var syncSuccess: Bool = false
 
     private var settings = AppSettings()
     private var idMap = TrackIDMap()
+    /// mtime of the XML when it was last loaded — used to detect edits made
+    /// by rekordbox (or anything else) between scan and sync
+    private var xmlLoadedModificationDate: Date?
 
     func loadOnAppear() {
         do {
@@ -29,38 +33,46 @@ final class SyncViewModel: ObservableObject {
             idMap = TrackIDMap()
         }
 
-        loadLibrary()
+        guard loadLibrary() else { return }
+        idMap.seed(from: library.tracks)
 
         if !settings.sourceFolderPath.isEmpty {
             scan()
         }
     }
 
-    private func loadLibrary() {
+    /// Returns false when an existing XML file could not be read or parsed —
+    /// proceeding would overwrite the user's library with an empty one.
+    private func loadLibrary() -> Bool {
         let xmlPath = settings.xmlFilePath
         guard !xmlPath.isEmpty else {
             statusMessage = "No XML file configured. Go to Settings to set the path."
-            return
+            return true
         }
 
         let url = URL(fileURLWithPath: xmlPath)
         guard FileManager.default.fileExists(atPath: xmlPath) else {
             statusMessage = "XML file not found. Scan to create it."
             library = RekordboxLibrary()
-            return
+            xmlLoadedModificationDate = nil
+            return true
         }
 
         do {
             let data = try Data(contentsOf: url)
             library = try RekordboxXMLParser.parse(data: data)
+            xmlLoadedModificationDate = (try? FileManager.default.attributesOfItem(atPath: xmlPath))?[.modificationDate] as? Date
             statusMessage = "Library loaded: \(library.tracks.count) tracks"
+            return true
         } catch {
-            errorMessage = "Failed to load XML: \(error.localizedDescription)"
+            errorMessage = "Failed to load XML — fix or remove the file before syncing: \(error.localizedDescription)"
             library = RekordboxLibrary()
+            return false
         }
     }
 
     func scan() {
+        guard !isWritingXML else { return }
         errorMessage = nil
         diff = nil
         removalSelections = []
@@ -79,7 +91,8 @@ final class SyncViewModel: ObservableObject {
         } catch {
             idMap = TrackIDMap()
         }
-        loadLibrary()
+        guard loadLibrary() else { return }
+        idMap.seed(from: library.tracks)
 
         let sourcePath = settings.sourceFolderPath
         guard !sourcePath.isEmpty else {
@@ -99,14 +112,15 @@ final class SyncViewModel: ObservableObject {
                 let result = SyncEngine.diff(library: librarySnapshot, scannedFolders: folders)
                 await MainActor.run {
                     let existingPaths = Set(librarySnapshot.tracks.values.map { $0.filePath })
-                    let newTrackPaths = Set(result.newTracks.map { $0.url.path })
+                    let newTrackPaths = Set(result.newTracks.map { $0.path })
                     let selected = librarySnapshot.tracks.isEmpty
                         ? SyncViewModel.allFolderPaths(in: folders)
                         : SyncViewModel.preselectFolders(in: folders, existingPaths: existingPaths.union(newTrackPaths))
                     self.diff = result
                     self.scannedFolders = folders
                     self.selectedFolders = selected
-                    self.removalSelections = Set(result.removedTracks.map { $0.trackID })
+                    // Deletion requires an explicit check — never pre-checked
+                    self.removalSelections = []
                     self.statusMessage = "\(result.newTracks.count) new, \(result.removedTracks.count) removed, \(result.unchangedCount) unchanged"
                     self.isScanning = false
                 }
@@ -165,7 +179,7 @@ final class SyncViewModel: ObservableObject {
 
             if !folder.files.isEmpty {
                 // Has direct files: select if any file is already in the library
-                if folder.files.contains(where: { existingPaths.contains($0.url.path) }) {
+                if folder.files.contains(where: { existingPaths.contains($0.path) }) {
                     result.insert(folder.folderURL.path)
                 }
             } else if !folder.children.isEmpty {
@@ -181,59 +195,121 @@ final class SyncViewModel: ObservableObject {
     // MARK: - Filtered Sync
 
     func syncToXML() {
+        guard !isWritingXML else { return }
         guard let diff = diff else {
             errorMessage = "No scan results. Run Scan first."
             return
         }
         errorMessage = nil
+        syncSuccess = false
 
-        do {
-            let filteredFolders = Self.filterFolders(scannedFolders, selectedPaths: selectedFolders)
-            let filteredFiles = filteredFolders.flatMap { $0.allFiles }
-            let filteredFilePaths = Set(filteredFiles.map { $0.url.path })
-            let filteredNewTracks = diff.newTracks.filter { filteredFilePaths.contains($0.url.path) }
+        let xmlPath = settings.xmlFilePath
+        guard !xmlPath.isEmpty else {
+            errorMessage = "No XML file path configured."
+            return
+        }
 
-            // Remove existing tracks that belong to unselected folders
-            let allScannedPaths = Set(scannedFolders.flatMap { $0.allFiles }.map { $0.url.path })
-            let excludedPaths = allScannedPaths.subtracting(filteredFilePaths)
-            var removals = removalSelections
-            for (trackID, track) in library.tracks {
-                if excludedPaths.contains(track.filePath) {
-                    removals.insert(trackID)
-                }
+        // Refuse to overwrite edits made to the XML since the last scan.
+        // Any mtime difference counts, and a file that appeared where none
+        // existed at scan time counts too.
+        let currentDate = (try? FileManager.default.attributesOfItem(atPath: xmlPath))?[.modificationDate] as? Date
+        if let loadedDate = xmlLoadedModificationDate {
+            if let currentDate, currentDate != loadedDate {
+                errorMessage = "XML file changed on disk since the last scan. Refresh before syncing."
+                return
             }
+        } else if currentDate != nil {
+            errorMessage = "An XML file appeared on disk since the last scan. Refresh before syncing."
+            return
+        }
 
-            let filteredDiff = SyncDiff(
-                newTracks: filteredNewTracks,
-                removedTracks: diff.removedTracks,
-                unchangedCount: diff.unchangedCount,
-                scannedFolders: filteredFolders
-            )
+        let filteredFolders = Self.filterFolders(scannedFolders, selectedPaths: selectedFolders)
+        let filteredFiles = filteredFolders.flatMap { $0.allFiles }
+        let filteredFilePaths = Set(filteredFiles.map { $0.path })
+        let filteredNewTracks = diff.newTracks.filter { filteredFilePaths.contains($0.path) }
 
-            SyncEngine.apply(diff: filteredDiff, to: &library, idMap: &idMap, removals: removals)
+        // Remove existing tracks that belong to unselected folders
+        let allScannedPaths = Set(scannedFolders.flatMap { $0.allFiles }.map { $0.path })
+        let excludedPaths = allScannedPaths.subtracting(filteredFilePaths)
+        var removals = removalSelections
+        for (trackID, track) in library.tracks {
+            if excludedPaths.contains(track.filePath) {
+                removals.insert(trackID)
+            }
+        }
 
-            let xmlPath = settings.xmlFilePath
-            guard !xmlPath.isEmpty else {
-                errorMessage = "No XML file path configured."
+        let filteredDiff = SyncDiff(
+            newTracks: filteredNewTracks,
+            removedTracks: diff.removedTracks,
+            unchangedCount: diff.unchangedCount,
+            scannedFolders: filteredFolders
+        )
+
+        SyncEngine.apply(diff: filteredDiff, to: &library, idMap: &idMap, removals: removals)
+
+        // Serialization and disk writes happen off the main actor so a large
+        // library can't freeze the UI
+        let librarySnapshot = library
+        let idMapSnapshot = idMap
+        let trackCount = library.tracks.count
+        let expectedDate = xmlLoadedModificationDate
+        statusMessage = "Writing XML..."
+        isWritingXML = true
+
+        Task.detached(priority: .userInitiated) {
+            let fm = FileManager.default
+
+            // Re-check right before writing — the main-actor check above races
+            // with this detached write
+            let diskDate = (try? fm.attributesOfItem(atPath: xmlPath))?[.modificationDate] as? Date
+            if let expectedDate, let diskDate, diskDate != expectedDate {
+                await MainActor.run {
+                    self.errorMessage = "XML file changed on disk during sync. Refresh and try again."
+                    self.statusMessage = ""
+                    self.isWritingXML = false
+                }
                 return
             }
 
-            let data = try RekordboxXMLWriter.write(library: library)
-            try data.write(to: URL(fileURLWithPath: xmlPath), options: .atomic)
-            try idMap.save(to: AppSettings.trackIDMapURL)
+            do {
+                let data = try RekordboxXMLWriter.write(library: librarySnapshot)
 
-            // Create an empty diff to keep showing folder structure
-            self.diff = SyncDiff(
-                newTracks: [],
-                removedTracks: [],
-                unchangedCount: library.tracks.count,
-                scannedFolders: scannedFolders
-            )
-            self.removalSelections = []
-            self.syncSuccess = true
-            statusMessage = "Synced! Library now has \(library.tracks.count) tracks."
-        } catch {
-            errorMessage = "Sync failed: \(error.localizedDescription)"
+                // Back up the existing XML before overwriting it
+                if fm.fileExists(atPath: xmlPath) {
+                    let stamp = backupFormatter.string(from: Date())
+                    try fm.copyItem(
+                        at: URL(fileURLWithPath: xmlPath),
+                        to: URL(fileURLWithPath: "\(xmlPath).\(stamp).bak")
+                    )
+                    pruneBackups(xmlPath: xmlPath)
+                }
+
+                // idMap first: it's recoverable via seeding, the XML is not
+                try idMapSnapshot.save(to: AppSettings.trackIDMapURL)
+                try data.write(to: URL(fileURLWithPath: xmlPath), options: .atomic)
+                let newDate = (try? fm.attributesOfItem(atPath: xmlPath))?[.modificationDate] as? Date
+
+                await MainActor.run {
+                    self.xmlLoadedModificationDate = newDate
+                    // Create an empty diff to keep showing folder structure
+                    self.diff = SyncDiff(
+                        newTracks: [],
+                        removedTracks: [],
+                        unchangedCount: trackCount,
+                        scannedFolders: self.scannedFolders
+                    )
+                    self.removalSelections = []
+                    self.syncSuccess = true
+                    self.statusMessage = "Synced! Library now has \(trackCount) tracks."
+                    self.isWritingXML = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.errorMessage = "Sync failed: \(error.localizedDescription)"
+                    self.statusMessage = "Sync failed. Refresh to reload the library."
+                    self.isWritingXML = false
+                }
+            }
         }
     }
 
@@ -267,11 +343,34 @@ final class SyncViewModel: ObservableObject {
     var selectedNewTrackCount: Int {
         guard diff != nil else { return 0 }
         let filteredFolders = Self.filterFolders(scannedFolders, selectedPaths: selectedFolders)
-        let filteredFilePaths = Set(filteredFolders.flatMap { $0.allFiles }.map { $0.url.path })
-        return diff!.newTracks.filter { filteredFilePaths.contains($0.url.path) }.count
+        let filteredFilePaths = Set(filteredFolders.flatMap { $0.allFiles }.map { $0.path })
+        return diff!.newTracks.filter { filteredFilePaths.contains($0.path) }.count
     }
 
     var selectedFolderCount: Int {
         selectedFolders.count
+    }
+}
+
+private let backupFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.locale = Locale(identifier: "en_US_POSIX")
+    f.dateFormat = "yyyyMMdd-HHmmss"
+    return f
+}()
+
+/// Keep only the newest `keep` timestamped backups of the XML file.
+private func pruneBackups(xmlPath: String, keep: Int = 5) {
+    let fm = FileManager.default
+    let url = URL(fileURLWithPath: xmlPath)
+    let dir = url.deletingLastPathComponent()
+    let prefix = url.lastPathComponent + "."
+    guard let names = try? fm.contentsOfDirectory(atPath: dir.path) else { return }
+    // Match only our own stamp pattern so a user's hand-made .bak files survive
+    let backups = names.filter {
+        $0.hasPrefix(prefix) && $0.range(of: #"\.\d{8}-\d{6}\.bak$"#, options: .regularExpression) != nil
+    }.sorted()
+    for name in backups.dropLast(keep) {
+        try? fm.removeItem(at: dir.appendingPathComponent(name))
     }
 }
