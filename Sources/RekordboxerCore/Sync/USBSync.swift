@@ -8,6 +8,9 @@ public struct USBSyncPlan {
     }
 
     public let filesToCopy: [FileCopy]
+    // ponytail: filenames, not counts. Callers only show counts today, but a
+    // silent skip is the failure mode this app exists to prevent — keep the
+    // names so "which track didn't make it?" stays answerable.
     public let skippedAmbiguous: [String]
     public let notOnUSB: [String]
     public let sourceMissing: [String]

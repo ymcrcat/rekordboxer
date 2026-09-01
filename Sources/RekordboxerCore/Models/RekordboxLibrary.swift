@@ -46,6 +46,11 @@ public struct Track {
     /// Verbatim XML of the TRACK's child elements as parsed. Non-empty only
     /// for tracks read from an existing XML; the writer re-emits these
     /// unchanged so rewrites never alter data the app didn't touch.
+    ///
+    /// ponytail: strings, not `[XMLElement]`, even though the writer re-parses
+    /// them. `Track` is a value type snapshotted into a detached task before
+    /// every write; `XMLElement` is a reference type, so holding one here would
+    /// hand two actors the same mutable node. Strings keep the snapshot honest.
     public var rawChildrenXML: [String] = []
 
     public init(trackID: Int) {
