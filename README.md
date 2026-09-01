@@ -4,7 +4,7 @@ A macOS app for syncing a local music folder into rekordbox playlists via the re
 
 ## Features
 
-- **Library Sync**: Point Rekordboxer at a music folder (e.g. synced via Dropbox) and it generates a rekordbox XML file where each subfolder becomes a playlist. New tracks are added automatically; removed tracks require your confirmation before deletion. Existing track data (cue points, beatgrids, BPM analysis) is preserved.
+- **Library Sync**: Point Rekordboxer at a music folder (e.g. synced via Dropbox) and it generates a rekordbox XML file where each subfolder becomes a playlist. New tracks are added automatically; removed tracks require your confirmation before deletion. Existing track data (cue points, beatgrids, BPM analysis) is preserved, and a timestamped backup of the XML is taken before every sync (the newest five are kept).
 
 - **Folder Tree Selection**: After scanning, folders are displayed as a hierarchical tree with tri-state checkboxes (checked, unchecked, mixed). Uncheck a folder to exclude it from the XML. On subsequent scans, folders are pre-selected based on what's already in the library — previously excluded folders stay unchecked.
 
@@ -49,3 +49,9 @@ cp -r build/Rekordboxer.app /Applications/
 ```bash
 swift test
 ```
+
+## Documentation
+
+- [docs/DESIGN.md](docs/DESIGN.md) — architecture, data models, and sync pipelines
+- [CHANGELOG.md](CHANGELOG.md) — release history
+- [TODOS.md](TODOS.md) — known limitations and deferred work
