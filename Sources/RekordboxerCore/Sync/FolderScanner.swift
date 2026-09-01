@@ -23,6 +23,10 @@ public struct ScannedFile {
     public let url: URL
     public let size: Int64
     public let modificationDate: Date
+
+    /// NFC-normalized path — must be used for any comparison against
+    /// library paths (which come NFC-normalized from decodeLocation).
+    public var path: String { url.path.precomposedStringWithCanonicalMapping }
 }
 
 public enum FolderScanner {
@@ -50,11 +54,15 @@ public enum FolderScanner {
 
     private static func subdirectories(of directory: URL) throws -> [URL] {
         let fm = FileManager.default
-        let contents = try fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        let contents = try fm.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles]
+        )
         return contents.filter { url in
-            var isDir: ObjCBool = false
-            fm.fileExists(atPath: url.path, isDirectory: &isDir)
-            return isDir.boolValue
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            // Skip symlinks: a link to an ancestor would recurse forever
+            return (values?.isDirectory ?? false) && !(values?.isSymbolicLink ?? false)
         }.sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
@@ -84,11 +92,16 @@ public enum FolderScanner {
     /// Scan a single directory for audio files (non-recursive).
     private static func scanAudioFilesFlat(in directory: URL) throws -> [ScannedFile] {
         let fm = FileManager.default
-        let contents = try fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey])
+        let contents = try fm.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        )
 
         return contents.compactMap { url in
             guard audioExtensions.contains(url.pathExtension.lowercased()) else { return nil }
-            let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+            let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey])
+            guard values?.isRegularFile == true else { return nil }
             return ScannedFile(
                 url: url,
                 size: Int64(values?.fileSize ?? 0),

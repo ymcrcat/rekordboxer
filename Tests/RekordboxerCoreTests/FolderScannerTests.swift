@@ -68,6 +68,44 @@ final class FolderScannerTests: XCTestCase {
         XCTAssertTrue(house.allFiles.contains { $0.url.lastPathComponent == "track4.mp3" })
     }
 
+    func testScanSkipsHiddenFiles() throws {
+        // AppleDouble metadata and dotfiles must never become tracks
+        let house = tempDir.appendingPathComponent("House")
+        FileManager.default.createFile(atPath: house.appendingPathComponent("._track1.mp3").path, contents: Data("junk".utf8))
+        FileManager.default.createFile(atPath: house.appendingPathComponent(".hidden.mp3").path, contents: Data("junk".utf8))
+
+        let result = try FolderScanner.scan(root: tempDir)
+        let names = result.flatMap { $0.allFiles }.map { $0.url.lastPathComponent }
+        XCTAssertFalse(names.contains("._track1.mp3"))
+        XCTAssertFalse(names.contains(".hidden.mp3"))
+    }
+
+    func testScanSkipsSymlinkedDirectories() throws {
+        // A symlink to an ancestor must not cause infinite recursion
+        let house = tempDir.appendingPathComponent("House")
+        try FileManager.default.createSymbolicLink(
+            at: house.appendingPathComponent("loop"),
+            withDestinationURL: tempDir
+        )
+
+        let result = try FolderScanner.scan(root: tempDir)
+        let allFiles = result.flatMap { $0.allFiles }
+        XCTAssertEqual(allFiles.count, 3)
+    }
+
+    func testScanSkipsNonRegularFiles() throws {
+        // A FIFO with an audio extension must not become a track
+        let house = tempDir.appendingPathComponent("House")
+        let fifoPath = house.appendingPathComponent("pipe.mp3").path
+        guard mkfifo(fifoPath, 0o644) == 0 else {
+            throw XCTSkip("mkfifo unavailable in this environment")
+        }
+
+        let result = try FolderScanner.scan(root: tempDir)
+        let names = result.flatMap { $0.allFiles }.map { $0.url.lastPathComponent }
+        XCTAssertFalse(names.contains("pipe.mp3"))
+    }
+
     func testScanFindsRootLevelAudioFiles() throws {
         // Add audio file directly in root
         FileManager.default.createFile(atPath: tempDir.appendingPathComponent("loose.mp3").path, contents: Data("audio".utf8))

@@ -2,7 +2,7 @@ import Foundation
 
 public enum RekordboxXMLParser {
     public static func parse(data: Data) throws -> RekordboxLibrary {
-        let doc = try XMLDocument(data: data)
+        let doc = try XMLDocument(data: data, options: [.nodeLoadExternalEntitiesNever])
         guard let root = doc.rootElement(), root.name == "DJ_PLAYLISTS" else {
             throw RekordboxXMLError.invalidFormat("Missing DJ_PLAYLISTS root element")
         }
@@ -24,7 +24,13 @@ public enum RekordboxXMLParser {
 
         if let playlists = root.elements(forName: "PLAYLISTS").first,
            let rootNode = playlists.elements(forName: "NODE").first {
-            library.rootNode = parsePlaylistNode(rootNode)
+            // KeyType="1" playlists reference tracks by location string; match on
+            // decoded paths so percent-encoding differences can't drop entries
+            var locationToID: [String: Int] = [:]
+            for (id, track) in library.tracks {
+                locationToID[track.filePath] = id
+            }
+            library.rootNode = parsePlaylistNode(rootNode, locationToID: locationToID)
         }
 
         return library
@@ -95,19 +101,33 @@ public enum RekordboxXMLParser {
             track.positionMarks.append(pm)
         }
 
+        // Keep every child element verbatim (TEMPO, POSITION_MARK, and
+        // anything this app doesn't model) so rewrites are lossless
+        for child in element.children ?? [] {
+            if let childElement = child as? XMLElement {
+                track.rawChildrenXML.append(childElement.xmlString)
+            }
+        }
+
         return track
     }
 
-    private static func parsePlaylistNode(_ element: XMLElement) -> PlaylistNode {
+    private static func parsePlaylistNode(_ element: XMLElement, locationToID: [String: Int]) -> PlaylistNode {
         let typeRaw = intAttr(element, "Type")
         let nodeType = PlaylistNodeType(rawValue: typeRaw) ?? .folder
         let name = stringAttr(element, "Name")
 
         if nodeType == .folder {
-            let children = element.elements(forName: "NODE").map { parsePlaylistNode($0) }
+            let children = element.elements(forName: "NODE").map { parsePlaylistNode($0, locationToID: locationToID) }
             return PlaylistNode(type: .folder, name: name, children: children, trackKeys: [])
         } else {
-            let trackKeys = element.elements(forName: "TRACK").map { intAttr($0, "Key") }
+            let trackKeys: [Int]
+            if stringAttr(element, "KeyType") == "1" {
+                // Location-string keys — resolve to TrackIDs
+                trackKeys = element.elements(forName: "TRACK").compactMap { locationToID[Track.decodeLocation(stringAttr($0, "Key"))] }
+            } else {
+                trackKeys = element.elements(forName: "TRACK").map { intAttr($0, "Key") }
+            }
             return PlaylistNode(type: .playlist, name: name, children: [], trackKeys: trackKeys)
         }
     }

@@ -44,6 +44,20 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(decoded, path)
     }
 
+    func testDecodeLocationVariants() {
+        // Some tools write file:/// (no localhost)
+        XCTAssertEqual(Track.decodeLocation("file:///Users/dj/Music/track.mp3"), "/Users/dj/Music/track.mp3")
+        // Prefix is only stripped at the start of the string
+        XCTAssertEqual(Track.decodeLocation("/weird/file://localhost/x.mp3"), "/weird/file://localhost/x.mp3")
+    }
+
+    func testDecodeLocationNormalizesUnicode() {
+        // Decomposed "é" (e + combining accent) must decode to precomposed form
+        let decomposed = "/Users/dj/Music/Caf\u{0065}\u{0301}.mp3"
+        let precomposed = "/Users/dj/Music/Caf\u{00E9}.mp3"
+        XCTAssertEqual(Track.decodeLocation(Track.encodeLocation(decomposed)), precomposed)
+    }
+
     func testPlaylistNodeTypes() {
         let folder = PlaylistNode(type: .folder, name: "House", children: [], trackKeys: [])
         XCTAssertTrue(folder.isFolder)

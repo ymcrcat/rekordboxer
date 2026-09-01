@@ -43,6 +43,10 @@ public struct Track {
     public var tempos: [Tempo] = []
     public var positionMarks: [PositionMark] = []
     public var rawAttributes: [String: String] = [:]
+    /// Verbatim XML of the TRACK's child elements as parsed. Non-empty only
+    /// for tracks read from an existing XML; the writer re-emits these
+    /// unchanged so rewrites never alter data the app didn't touch.
+    public var rawChildrenXML: [String] = []
 
     public init(trackID: Int) {
         self.trackID = trackID
@@ -67,8 +71,18 @@ public struct Track {
     }
 
     public static func decodeLocation(_ location: String) -> String {
-        let withoutPrefix = location.replacingOccurrences(of: "file://localhost", with: "")
-        return withoutPrefix.removingPercentEncoding ?? withoutPrefix
+        let withoutPrefix: String
+        if location.hasPrefix("file://localhost") {
+            withoutPrefix = String(location.dropFirst("file://localhost".count))
+        } else if location.hasPrefix("file://") {
+            withoutPrefix = String(location.dropFirst("file://".count))
+        } else {
+            withoutPrefix = location
+        }
+        let decoded = withoutPrefix.removingPercentEncoding ?? withoutPrefix
+        // NFC-normalize: APFS reports decomposed names, XML stores precomposed —
+        // without this, accented filenames look simultaneously new and removed
+        return decoded.precomposedStringWithCanonicalMapping
     }
 }
 

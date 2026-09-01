@@ -19,7 +19,7 @@ public enum RekordboxXMLWriter {
         collection.addAttribute(attr("Entries", String(library.tracks.count)))
         let sortedTracks = library.tracks.values.sorted { $0.trackID < $1.trackID }
         for track in sortedTracks {
-            collection.addChild(writeTrack(track))
+            collection.addChild(try writeTrack(track))
         }
         root.addChild(collection)
 
@@ -30,7 +30,7 @@ public enum RekordboxXMLWriter {
         return doc.xmlData(options: [.nodePrettyPrint])
     }
 
-    private static func writeTrack(_ track: Track) -> XMLElement {
+    private static func writeTrack(_ track: Track) throws -> XMLElement {
         let element = XMLElement(name: "TRACK")
 
         let attrs: [(String, String)] = [
@@ -64,13 +64,33 @@ public enum RekordboxXMLWriter {
             ("Colour", track.colour),
         ]
 
+        // Tracks parsed from an existing XML round-trip verbatim: original
+        // attribute strings win over re-formatted typed values, and attributes
+        // absent in the original stay absent. Only app-created tracks
+        // (empty rawAttributes) get synthesized attributes.
+        let isParsed = !track.rawAttributes.isEmpty
         for (name, value) in attrs {
-            element.addAttribute(attr(name, value))
+            if isParsed {
+                if let raw = track.rawAttributes[name] {
+                    element.addAttribute(attr(name, raw))
+                }
+            } else {
+                element.addAttribute(attr(name, value))
+            }
         }
 
         let knownNames = Set(attrs.map { $0.0 })
         for (name, value) in track.rawAttributes where !knownNames.contains(name) {
             element.addAttribute(attr(name, value))
+        }
+
+        if !track.rawChildrenXML.isEmpty {
+            for xml in track.rawChildrenXML {
+                // Fail loudly rather than silently dropping cue/tempo data —
+                // this path exists purely for losslessness
+                element.addChild(try XMLElement(xmlString: xml))
+            }
+            return element
         }
 
         for tempo in track.tempos {

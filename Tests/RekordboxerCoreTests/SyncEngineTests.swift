@@ -196,6 +196,77 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(subPlaylist.trackKeys.count, 1)
     }
 
+    func testSeededIDMapPreservesExistingTracksInPlaylists() {
+        // Simulate first run against a pre-existing XML: library has tracks
+        // with high IDs, trackids.json is empty
+        var library = RekordboxLibrary()
+        var existing = Track(trackID: 500)
+        existing.location = Track.encodeLocation("/music/House/old.mp3")
+        library.tracks[500] = existing
+
+        var idMap = TrackIDMap()
+        idMap.seed(from: library.tracks)
+
+        let oldFile = ScannedFile(url: URL(fileURLWithPath: "/music/House/old.mp3"), size: 1000, modificationDate: Date())
+        let newFile = ScannedFile(url: URL(fileURLWithPath: "/music/House/new.mp3"), size: 1000, modificationDate: Date())
+        let folders = [
+            ScannedFolder(folderName: "House", folderURL: URL(fileURLWithPath: "/music/House"), files: [oldFile, newFile], children: [])
+        ]
+        let diff = SyncDiff(newTracks: [newFile], removedTracks: [], unchangedCount: 1, scannedFolders: folders)
+
+        SyncEngine.apply(diff: diff, to: &library, idMap: &idMap, removals: [])
+
+        // Existing track survives (no ID collision) and keeps playlist membership
+        XCTAssertEqual(library.tracks.count, 2)
+        XCTAssertEqual(library.tracks[500]?.filePath, "/music/House/old.mp3")
+        let playlist = library.rootNode.children[0]
+        XCTAssertTrue(playlist.trackKeys.contains(500))
+        // New track got an ID above the existing max
+        let newID = idMap.trackID(for: "/music/House/new.mp3")!
+        XCTAssertGreaterThan(newID, 500)
+        XCTAssertTrue(playlist.trackKeys.contains(newID))
+    }
+
+    func testDiffMatchesDecomposedScannedPathsAgainstPrecomposedLibrary() {
+        // Filesystem reports decomposed (NFD) names; the XML stores precomposed.
+        // The same file must count as unchanged, not new + removed.
+        let decomposedPath = "/music/House/Caf\u{0065}\u{0301}.mp3"
+        let precomposedPath = "/music/House/Caf\u{00E9}.mp3"
+
+        var library = RekordboxLibrary()
+        var track = Track(trackID: 1)
+        track.location = Track.encodeLocation(precomposedPath)
+        library.tracks[1] = track
+
+        let folders = [
+            ScannedFolder(folderName: "House", folderURL: URL(fileURLWithPath: "/music/House"), files: [
+                ScannedFile(url: URL(fileURLWithPath: decomposedPath), size: 1000, modificationDate: Date()),
+            ], children: [])
+        ]
+
+        let diff = SyncEngine.diff(library: library, scannedFolders: folders)
+        XCTAssertEqual(diff.newTracks.count, 0)
+        XCTAssertEqual(diff.removedTracks.count, 0)
+        XCTAssertEqual(diff.unchangedCount, 1)
+    }
+
+    func testSeedPurgesStaleEntriesForOccupiedIDs() {
+        // Stale trackids.json entry: /old/path.mp3 -> 7, but the library
+        // assigns ID 7 to a different track. getOrAssign must not hand out 7.
+        var idMap = TrackIDMap()
+        idMap.assign(path: "/old/path.mp3", trackID: 7)
+
+        var library = RekordboxLibrary()
+        var track = Track(trackID: 7)
+        track.location = Track.encodeLocation("/music/current.mp3")
+        library.tracks[7] = track
+
+        idMap.seed(from: library.tracks)
+
+        XCTAssertNotEqual(idMap.getOrAssign(path: "/old/path.mp3"), 7)
+        XCTAssertEqual(idMap.trackID(for: "/music/current.mp3"), 7)
+    }
+
     func testTrackIDMapStability() {
         var idMap = TrackIDMap()
         let id1 = idMap.getOrAssign(path: "/music/track1.mp3")
