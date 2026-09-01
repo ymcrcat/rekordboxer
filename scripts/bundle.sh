@@ -3,6 +3,7 @@ set -euo pipefail
 
 APP_NAME="Rekordboxer"
 BUILD_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+APP_VERSION="$(tr -d '[:space:]' < "$BUILD_DIR/VERSION" 2>/dev/null || echo 1.0.0)"
 APP_BUNDLE="$BUILD_DIR/build/$APP_NAME.app"
 CONTENTS="$APP_BUNDLE/Contents"
 MACOS="$CONTENTS/MacOS"
@@ -23,7 +24,7 @@ cp "$BUILD_DIR/.build/release/$APP_NAME" "$MACOS/$APP_NAME"
 cp "$BUILD_DIR/Resources/AppIcon.icns" "$RESOURCES/AppIcon.icns"
 
 # Write Info.plist
-cat > "$CONTENTS/Info.plist" << 'PLIST'
+cat > "$CONTENTS/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -35,9 +36,9 @@ cat > "$CONTENTS/Info.plist" << 'PLIST'
     <key>CFBundleIdentifier</key>
     <string>com.rekordboxer.app</string>
     <key>CFBundleVersion</key>
-    <string>1.0.0</string>
+    <string>${APP_VERSION}</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>${APP_VERSION}</string>
     <key>CFBundleExecutable</key>
     <string>Rekordboxer</string>
     <key>CFBundlePackageType</key>
@@ -53,6 +54,9 @@ cat > "$CONTENTS/Info.plist" << 'PLIST'
 </dict>
 </plist>
 PLIST
+
+# Ad-hoc sign so Gatekeeper/TCC treat the bundle consistently across rebuilds
+codesign --force --sign - "$APP_BUNDLE"
 
 echo "Built $APP_BUNDLE"
 echo ""

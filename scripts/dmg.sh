@@ -7,11 +7,8 @@ APP_BUNDLE="$BUILD_DIR/build/$APP_NAME.app"
 DMG_OUTPUT="$BUILD_DIR/build/$APP_NAME.dmg"
 STAGING_DIR="$BUILD_DIR/build/dmg-staging"
 
-# Ensure the .app bundle exists
-if [ ! -d "$APP_BUNDLE" ]; then
-    echo "App bundle not found. Running bundle.sh first..."
-    "$BUILD_DIR/scripts/bundle.sh"
-fi
+# Always rebuild so the DMG never packages a stale binary
+"$BUILD_DIR/scripts/bundle.sh"
 
 echo "Creating DMG..."
 

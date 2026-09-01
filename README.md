@@ -40,7 +40,7 @@ cp -r build/Rekordboxer.app /Applications/
 1. Open Rekordboxer and go to **Settings**
 2. Set your music source folder (the folder whose subfolders become playlists)
 3. Set a path for the rekordbox XML file
-4. Go to **Library Sync**, click **Scan**, review changes, then **Sync to XML**
+4. Go to **Library Sync**, click **Refresh**, review changes, then **Sync to XML**
 5. In rekordbox: File > Import Collection in XML Format
 6. For USB updates: go to **USB Sync**, select a volume and playlists, then sync
 
