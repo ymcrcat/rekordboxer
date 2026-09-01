@@ -4,11 +4,11 @@ A macOS app for syncing a local music folder into rekordbox playlists via the re
 
 ## Features
 
-- **Library Sync**: Point Rekordboxer at a music folder (e.g. synced via Dropbox) and it generates a rekordbox XML file where each subfolder becomes a playlist. New tracks are added automatically; removed tracks require your confirmation before deletion. Existing track data (cue points, beatgrids, BPM analysis) is preserved, and a timestamped backup of the XML is taken before every sync (the newest five are kept).
+- **Library Sync**: Point Rekordboxer at a music folder (e.g. synced via Dropbox) and it generates a rekordbox XML file where each subfolder becomes a playlist. New tracks are added automatically; removed tracks require your confirmation before deletion. Existing track data (cue points, beatgrids, BPM analysis) is preserved, and a timestamped backup of the existing XML is taken before every sync (the newest five are kept).
 
 - **Folder Tree Selection**: After scanning, folders are displayed as a hierarchical tree with tri-state checkboxes (checked, unchecked, mixed). Uncheck a folder to exclude it from the XML. On subsequent scans, folders are pre-selected based on what's already in the library — previously excluded folders stay unchecked.
 
-- **USB Sync**: Select which playlists to sync to a USB stick. Rekordboxer tracks which files have changed since the last sync and copies only what's needed — no more deleting and re-exporting entire playlists through rekordbox.
+- **USB Sync**: Select which playlists to sync to a USB stick. Rekordboxer compares your library files against the copies already on the stick and updates only what changed — no more deleting and re-exporting entire playlists through rekordbox. New tracks still need a one-time export from rekordbox; Rekordboxer updates files that are already there.
 
 ## Requirements
 
@@ -42,7 +42,7 @@ cp -r build/Rekordboxer.app /Applications/
 3. Set a path for the rekordbox XML file
 4. Go to **Library Sync**, click **Refresh**, review changes, then **Sync to XML**
 5. In rekordbox: File > Import Collection in XML Format
-6. For USB updates: go to **USB Sync**, select a volume and playlists, then sync
+6. For USB updates: go to **USB Sync**, select a volume and playlists, click **Plan**, review the changes, then **Copy to USB**
 
 ## Tests
 

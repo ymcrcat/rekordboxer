@@ -43,7 +43,7 @@ scripts/
 
 **`RekordboxLibrary`** holds the full library state: a dictionary of `Track` objects keyed by track ID, and a `PlaylistNode` tree representing the folder/playlist hierarchy.
 
-**`Track`** stores all rekordbox metadata: name, artist, album, genre, BPM, key, rating, cue points (`PositionMark`), beatgrid (`Tempo`), and a `rawAttributes` dictionary that preserves any XML attributes rekordbox writes that Rekordboxer doesn't explicitly model. Tracks parsed from an existing XML also keep `rawChildrenXML` — the verbatim XML of their child elements — so cue points, beatgrids, and unknown fields round-trip byte-for-byte on write. This means analysis data, waveform info, and future rekordbox fields survive round-trips through Rekordboxer.
+**`Track`** stores all rekordbox metadata: name, artist, album, genre, BPM, key, rating, cue points (`PositionMark`), beatgrid (`Tempo`), and a `rawAttributes` dictionary that preserves any XML attributes rekordbox writes that Rekordboxer doesn't explicitly model. Tracks parsed from an existing XML also keep `rawChildrenXML` — the verbatim XML of their child elements — so the values and formatting of cue points, beatgrids, and unknown fields are preserved on write. This means analysis data, waveform info, and future rekordbox fields survive round-trips through Rekordboxer.
 
 **`PlaylistNode`** is a recursive tree where each node is either a folder (contains children) or a playlist (contains track IDs). This maps directly to rekordbox's `NODE` XML elements.
 
@@ -87,9 +87,9 @@ The folder tree maps to rekordbox playlists as follows:
 
 USB sync assumes rekordbox has already exported tracks to a USB stick. Rekordboxer's job is to update files that have changed on disk (e.g. re-encoded or re-tagged files in a Dropbox folder) without re-exporting through rekordbox, which would lose cue points and analysis data.
 
-1. **Plan** (`USBSync.plan`): Indexes all files on the USB stick by filename. For each track in the selected playlists, finds the matching file on USB. Compares file size and modification date against a manifest (`.rekordboxer_manifest.json` stored on the USB root). Files that differ are queued for copy; unchanged files are skipped. The plan also reports what it could not sync: tracks whose filename appears more than once in the library are skipped as ambiguous (copying would risk overwriting the wrong USB file), files not on USB are listed as needing a rekordbox export first, and files missing at the source are flagged.
+1. **Plan** (`USBSync.plan`): Indexes all files on the USB stick by filename. For each track in the selected playlists, finds the matching file on USB. Compares each source file's size and modification date directly against the copy on the USB — no state is stored on the stick — so a same-size edit is still caught by its newer modification time. Files that differ are queued for copy; unchanged files are skipped. The plan also reports what it could not sync: tracks whose filename appears more than once in the library are skipped as ambiguous (copying would risk overwriting the wrong USB file), files not on USB are listed as needing a rekordbox export first, and files missing at the source are flagged.
 
-2. **Execute** (`USBSync.execute`): Copies each changed file from source to its existing location on USB, preserving rekordbox's directory structure (`Contents/Artist/Album/`). Each file is copied to a temporary file on the USB and then swapped into place, so a failed or interrupted copy never destroys the only copy of a track on the stick. Updates the manifest for next sync.
+2. **Execute** (`USBSync.execute`): Copies each changed file from source to its existing location on USB, preserving rekordbox's directory structure (`Contents/Artist/Album/`). Each file is copied to a temporary file on the USB and then swapped into place, so a failed or interrupted copy never destroys the only copy of a track on the stick.
 
 ## Settings
 
@@ -104,7 +104,7 @@ USB sync assumes rekordbox has already exported tracks to a USB stick. Rekordbox
 The test suite (84 tests) covers:
 
 - **Model tests**: Rating conversion, position mark types, location encoding, playlist node types
-- **XML round-trip tests**: Parse fixture XML, write it back, verify all data preserved (byte-for-byte for parsed tracks), external-entity hardening
+- **XML round-trip tests**: Parse fixture XML, write it back, verify all data preserved (verbatim attribute and child preservation for parsed tracks), external-entity hardening
 - **Folder scanner tests**: Audio file detection, non-audio filtering, nested scanning, metadata capture, hidden-file and symlink exclusion
 - **Sync engine tests**: New/removed/unchanged detection, selective removal, nested playlist building, name collision handling, track ID stability, Unicode path normalization
 - **Playlist selector tests**: Tri-state check-state computation, toggle propagation, preselection from an existing library
