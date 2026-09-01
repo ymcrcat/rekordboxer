@@ -25,6 +25,7 @@ Versions follow MAJOR.MINOR.PATCH.MICRO.
 - App bundles are ad-hoc code-signed and stamped at build time with the version from the VERSION file.
 
 ### Changed
+- Backup, staleness, and folder-selection logic moved into the core library so it is covered by tests (103 tests, up from 64).
 - Removed tracks now default to unchecked — deleting a track from the library requires an explicit check.
 - USB volumes must be selected explicitly — the first external drive is no longer auto-selected.
 - Building a DMG always rebuilds the app bundle first, so it can never package a stale binary.

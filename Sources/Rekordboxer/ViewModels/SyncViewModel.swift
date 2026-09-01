@@ -61,7 +61,7 @@ final class SyncViewModel: ObservableObject {
         do {
             let data = try Data(contentsOf: url)
             library = try RekordboxXMLParser.parse(data: data)
-            xmlLoadedModificationDate = (try? FileManager.default.attributesOfItem(atPath: xmlPath))?[.modificationDate] as? Date
+            xmlLoadedModificationDate = LibraryBackup.modificationDate(of: xmlPath)
             statusMessage = "Library loaded: \(library.tracks.count) tracks"
             return true
         } catch {
@@ -114,8 +114,8 @@ final class SyncViewModel: ObservableObject {
                     let existingPaths = Set(librarySnapshot.tracks.values.map { $0.filePath })
                     let newTrackPaths = Set(result.newTracks.map { $0.path })
                     let selected = librarySnapshot.tracks.isEmpty
-                        ? SyncViewModel.allFolderPaths(in: folders)
-                        : SyncViewModel.preselectFolders(in: folders, existingPaths: existingPaths.union(newTrackPaths))
+                        ? FolderSelection.allPaths(in: folders)
+                        : FolderSelection.preselect(in: folders, existingPaths: existingPaths.union(newTrackPaths))
                     self.diff = result
                     self.scannedFolders = folders
                     self.selectedFolders = selected
@@ -136,7 +136,7 @@ final class SyncViewModel: ObservableObject {
     // MARK: - Folder Selection
 
     func toggleFolder(_ folder: ScannedFolder) {
-        let paths = Self.allFolderPaths(in: [folder])
+        let paths = FolderSelection.allPaths(in: [folder])
         if folderCheckState(folder) == .checked {
             selectedFolders.subtract(paths)
         } else {
@@ -149,47 +149,7 @@ final class SyncViewModel: ObservableObject {
     }
 
     func folderCheckState(_ folder: ScannedFolder) -> CheckState {
-        let allPaths = Self.allFolderPaths(in: [folder])
-        let selectedCount = allPaths.filter { selectedFolders.contains($0) }.count
-        if selectedCount == 0 {
-            return .unchecked
-        } else if selectedCount == allPaths.count {
-            return .checked
-        } else {
-            return .mixed
-        }
-    }
-
-    static func allFolderPaths(in folders: [ScannedFolder]) -> Set<String> {
-        var result = Set<String>()
-        for folder in folders {
-            result.insert(folder.folderURL.path)
-            result.formUnion(allFolderPaths(in: folder.children))
-        }
-        return result
-    }
-
-    /// Pre-select only folders that have at least one file already in the library.
-    /// Pure container folders (no direct files) are selected if all their children are selected.
-    static func preselectFolders(in folders: [ScannedFolder], existingPaths: Set<String>) -> Set<String> {
-        var result = Set<String>()
-        for folder in folders {
-            let childResults = preselectFolders(in: folder.children, existingPaths: existingPaths)
-            result.formUnion(childResults)
-
-            if !folder.files.isEmpty {
-                // Has direct files: select if any file is already in the library
-                if folder.files.contains(where: { existingPaths.contains($0.path) }) {
-                    result.insert(folder.folderURL.path)
-                }
-            } else if !folder.children.isEmpty {
-                // Pure container: select if all children are selected
-                if folder.children.allSatisfy({ childResults.contains($0.folderURL.path) }) {
-                    result.insert(folder.folderURL.path)
-                }
-            }
-        }
-        return result
+        FolderSelection.checkState(for: folder, selected: selectedFolders)
     }
 
     // MARK: - Filtered Sync
@@ -209,34 +169,25 @@ final class SyncViewModel: ObservableObject {
             return
         }
 
-        // Refuse to overwrite edits made to the XML since the last scan.
-        // Any mtime difference counts, and a file that appeared where none
-        // existed at scan time counts too.
-        let currentDate = (try? FileManager.default.attributesOfItem(atPath: xmlPath))?[.modificationDate] as? Date
-        if let loadedDate = xmlLoadedModificationDate {
-            if let currentDate, currentDate != loadedDate {
-                errorMessage = "XML file changed on disk since the last scan. Refresh before syncing."
-                return
-            }
-        } else if currentDate != nil {
-            errorMessage = "An XML file appeared on disk since the last scan. Refresh before syncing."
+        // Refuse to overwrite edits made to the XML since the last scan
+        let currentDate = LibraryBackup.modificationDate(of: xmlPath)
+        if let stale = LibraryBackup.staleness(loaded: xmlLoadedModificationDate, current: currentDate) {
+            errorMessage = stale.message
             return
         }
 
-        let filteredFolders = Self.filterFolders(scannedFolders, selectedPaths: selectedFolders)
+        let filteredFolders = FolderSelection.filter(scannedFolders, selectedPaths: selectedFolders)
         let filteredFiles = filteredFolders.flatMap { $0.allFiles }
         let filteredFilePaths = Set(filteredFiles.map { $0.path })
         let filteredNewTracks = diff.newTracks.filter { filteredFilePaths.contains($0.path) }
 
         // Remove existing tracks that belong to unselected folders
-        let allScannedPaths = Set(scannedFolders.flatMap { $0.allFiles }.map { $0.path })
-        let excludedPaths = allScannedPaths.subtracting(filteredFilePaths)
-        var removals = removalSelections
-        for (trackID, track) in library.tracks {
-            if excludedPaths.contains(track.filePath) {
-                removals.insert(trackID)
-            }
-        }
+        let removals = FolderSelection.removals(
+            userSelected: removalSelections,
+            library: library,
+            allScannedPaths: Set(scannedFolders.flatMap { $0.allFiles }.map { $0.path }),
+            selectedPaths: filteredFilePaths
+        )
 
         let filteredDiff = SyncDiff(
             newTracks: filteredNewTracks,
@@ -261,8 +212,8 @@ final class SyncViewModel: ObservableObject {
 
             // Re-check right before writing — the main-actor check above races
             // with this detached write
-            let diskDate = (try? fm.attributesOfItem(atPath: xmlPath))?[.modificationDate] as? Date
-            if let expectedDate, let diskDate, diskDate != expectedDate {
+            let diskDate = LibraryBackup.modificationDate(of: xmlPath)
+            if LibraryBackup.staleness(loaded: expectedDate, current: diskDate) != nil {
                 await MainActor.run {
                     self.errorMessage = "XML file changed on disk during sync. Refresh and try again."
                     self.statusMessage = ""
@@ -275,19 +226,12 @@ final class SyncViewModel: ObservableObject {
                 let data = try RekordboxXMLWriter.write(library: librarySnapshot)
 
                 // Back up the existing XML before overwriting it
-                if fm.fileExists(atPath: xmlPath) {
-                    let stamp = backupFormatter.string(from: Date())
-                    try fm.copyItem(
-                        at: URL(fileURLWithPath: xmlPath),
-                        to: URL(fileURLWithPath: "\(xmlPath).\(stamp).bak")
-                    )
-                    pruneBackups(xmlPath: xmlPath)
-                }
+                try LibraryBackup.backup(xmlPath: xmlPath)
 
                 // idMap first: it's recoverable via seeding, the XML is not
                 try idMapSnapshot.save(to: AppSettings.trackIDMapURL)
                 try data.write(to: URL(fileURLWithPath: xmlPath), options: .atomic)
-                let newDate = (try? fm.attributesOfItem(atPath: xmlPath))?[.modificationDate] as? Date
+                let newDate = LibraryBackup.modificationDate(of: xmlPath)
 
                 await MainActor.run {
                     self.xmlLoadedModificationDate = newDate
@@ -313,64 +257,14 @@ final class SyncViewModel: ObservableObject {
         }
     }
 
-    /// Recursively prune the folder tree to only include selected folders.
-    static func filterFolders(_ folders: [ScannedFolder], selectedPaths: Set<String>) -> [ScannedFolder] {
-        folders.compactMap { folder -> ScannedFolder? in
-            let isSelected = selectedPaths.contains(folder.folderURL.path)
-            let filteredChildren = filterFolders(folder.children, selectedPaths: selectedPaths)
-
-            if isSelected {
-                return ScannedFolder(
-                    folderName: folder.folderName,
-                    folderURL: folder.folderURL,
-                    files: folder.files,
-                    children: filteredChildren
-                )
-            } else if !filteredChildren.isEmpty {
-                // Parent not selected but some descendants are — keep as container with no direct files
-                return ScannedFolder(
-                    folderName: folder.folderName,
-                    folderURL: folder.folderURL,
-                    files: [],
-                    children: filteredChildren
-                )
-            } else {
-                return nil
-            }
-        }
-    }
-
     var selectedNewTrackCount: Int {
         guard diff != nil else { return 0 }
-        let filteredFolders = Self.filterFolders(scannedFolders, selectedPaths: selectedFolders)
+        let filteredFolders = FolderSelection.filter(scannedFolders, selectedPaths: selectedFolders)
         let filteredFilePaths = Set(filteredFolders.flatMap { $0.allFiles }.map { $0.path })
         return diff!.newTracks.filter { filteredFilePaths.contains($0.path) }.count
     }
 
     var selectedFolderCount: Int {
         selectedFolders.count
-    }
-}
-
-private let backupFormatter: DateFormatter = {
-    let f = DateFormatter()
-    f.locale = Locale(identifier: "en_US_POSIX")
-    f.dateFormat = "yyyyMMdd-HHmmss"
-    return f
-}()
-
-/// Keep only the newest `keep` timestamped backups of the XML file.
-private func pruneBackups(xmlPath: String, keep: Int = 5) {
-    let fm = FileManager.default
-    let url = URL(fileURLWithPath: xmlPath)
-    let dir = url.deletingLastPathComponent()
-    let prefix = url.lastPathComponent + "."
-    guard let names = try? fm.contentsOfDirectory(atPath: dir.path) else { return }
-    // Match only our own stamp pattern so a user's hand-made .bak files survive
-    let backups = names.filter {
-        $0.hasPrefix(prefix) && $0.range(of: #"\.\d{8}-\d{6}\.bak$"#, options: .regularExpression) != nil
-    }.sorted()
-    for name in backups.dropLast(keep) {
-        try? fm.removeItem(at: dir.appendingPathComponent(name))
     }
 }

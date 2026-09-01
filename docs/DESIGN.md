@@ -30,7 +30,7 @@ Sources/
       SyncViewModel.swift     # Library sync state and logic
       USBSyncViewModel.swift  # USB sync state and logic
 Tests/
-  RekordboxerCoreTests/       # 84 tests covering all core logic
+  RekordboxerCoreTests/       # 103 tests covering all core logic
 Resources/
   AppIcon.svg                 # Source artwork
   AppIcon.icns                # Compiled macOS icon
@@ -101,7 +101,12 @@ USB sync assumes rekordbox has already exported tracks to a USB stick. Rekordbox
 
 ## Tests
 
-The test suite (84 tests) covers:
+Pure logic lives in `RekordboxerCore` so it is reachable from tests; the app
+target holds only SwiftUI wiring (`@Published` state, button enablement) and
+has no automated coverage. Backup, staleness, and folder-selection logic were
+moved out of the view models for exactly this reason.
+
+The test suite (103 tests) covers:
 
 - **Model tests**: Rating conversion, position mark types, location encoding, playlist node types
 - **XML round-trip tests**: Parse fixture XML, write it back, verify all data preserved (verbatim attribute and child preservation for parsed tracks), external-entity hardening
@@ -109,5 +114,7 @@ The test suite (84 tests) covers:
 - **Sync engine tests**: New/removed/unchanged detection, selective removal, nested playlist building, name collision handling, track ID stability, Unicode path normalization
 - **Playlist selector tests**: Tri-state check-state computation, toggle propagation, preselection from an existing library
 - **USB sync tests**: Skip-unchanged logic, change detection, safe temp-file copy, ambiguous-filename skipping, selective playlist sync
+- **Library backup tests**: Backup-aside before overwrite, same-second collision handling, pruning to the newest five, hand-made `.bak` files left alone, staleness decisions (changed / appeared / unreadable)
+- **Folder selection tests**: Tri-state check state, preselection from an existing library, tree pruning that preserves hierarchy, removal-set computation (deselected folders plus explicit checks, sparing tracks outside the scanned root)
 - **App state tests**: Settings persistence round-trip
 - **Integration tests**: Full end-to-end workflow (scan → diff → apply → write → re-read → re-scan)
