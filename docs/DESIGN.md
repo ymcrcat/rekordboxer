@@ -32,7 +32,7 @@ Sources/
 Tests/
   RekordboxerCoreTests/       # 103 tests covering all core logic
 Resources/
-  AppIcon.svg                 # Source artwork
+  AppIcon.png                 # Source artwork (1024x1024, transparent outside the rounded rect)
   AppIcon.icns                # Compiled macOS icon
 scripts/
   bundle.sh                   # Build and package .app bundle (version from VERSION file, ad-hoc signed)
