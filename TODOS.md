@@ -28,4 +28,8 @@ The playlist tree is rebuilt from the folder structure on every sync (by design)
 **Priority:** P3
 Bundles are ad-hoc signed (`codesign --sign -`), enough for local installs but Gatekeeper blocks downloaded copies. Add Developer ID signing + `notarytool` to `scripts/dmg.sh` if the DMG is ever distributed.
 
+### Backup pruning discards the pre-first-sync state
+**Priority:** P2
+`LibraryBackup.prune` keeps the newest five backups and treats them all equally, so the copy taken before the app ever touched the library ages out after five syncs. Found during the manual smoke test: six syncs pruned the original 1-track backup, leaving only post-sync copies. On a real library that's a normal week, and it's the state most worth rolling back to. Fix: keep the first-ever backup permanently (`.original.bak`), or make retention time-based rather than count-based.
+
 ## Completed
